@@ -7,8 +7,7 @@ ID Card Unit is a React + Node.js system for card management, scheduling, report
 - Frontend: React + Vite
 - Backend: Node.js + Express
 - Database: PostgreSQL
-- Process manager: PM2
-- Reverse proxy/static serving: Nginx
+- Hosting: Render (Static Site + Web Service + PostgreSQL)
 
 ## Local development
 
@@ -40,20 +39,19 @@ npm run dev
 
 Frontend runs on `http://localhost:3001` and proxies `/api` to backend `http://localhost:5000`.
 
-## AWS deployment (no Cloudflare/ngrok)
+## Render deployment
 
-Use the AWS-native deployment path in these files:
+Use Render for production deployment:
 
-- `deployment/aws/aws-deploy-runbook.md`
-- `deployment/aws/amplify-github-runbook.md`
-- `deployment/aws/ec2-bootstrap.sh`
-- `deployment/aws/nginx-id-card.conf`
+- Backend: Render Web Service (from `backend/`)
+- Frontend: Render Static Site (from repo root)
+- Database: Render PostgreSQL
+
+Key config files:
+
+- `render.yaml`
 - `backend/.env.production.example`
 - `.env.production.example`
-
-If you are deploying frontend with Amplify GitHub integration, start with `deployment/aws/amplify-github-runbook.md`.
-
-The runbook is designed to use AWS resources directly (EC2/RDS/ALB/private VPC connectivity) and does not require tunnel-based services.
 
 ## Existing detailed guide
 

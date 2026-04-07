@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: id-card-unit-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: 5432
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: id_card_system
+      - key: JWT_SECRET
+        sync: false
+      - key: MAX_FILE_SIZE
+        value: 5242880
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CAPTURE_APP_URL
+        sync: false
+      - key: CAPTURE_APP_OUTPUT_DIR
+        value: /opt/render/project/src/backend/uploads/output
+      - key: VERIFY_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SECURITY
+        value: TLS
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        value: '"ID Card Unit" <noreply@ui.edu.ng>'
+
+  - type: web
+    name: id-card-unit-frontend
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
