@@ -4,20 +4,14 @@ phases:
   install:
     runtime-versions:
       nodejs: 20
-  pre_build:
     commands:
-      - npm ci
+      - npm ci --legacy-peer-deps
   build:
     commands:
       - npm run build
-  post_build:
-    commands:
-      - aws s3 sync dist/ s3://$S3_BUCKET_NAME --delete --cache-control "public, max-age=31536000, immutable" --exclude "index.html"
-      - aws s3 cp dist/index.html s3://$S3_BUCKET_NAME/index.html --cache-control "no-cache, no-store, must-revalidate"
-      # If you have CloudFront set up, uncomment the line below:
-      # - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_ID --paths "/*"
-
+    
 artifacts:
   files:
     - '**/*'
   base-directory: 'dist'
+  discard-paths: no
