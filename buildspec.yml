@@ -1,9 +1,7 @@
-version: '0.2'
+version: 0.2
 
 phases:
   install:
-    runtime-versions:
-      nodejs: 20
     commands:
       - npm ci --legacy-peer-deps
   build:
@@ -11,7 +9,5 @@ phases:
       - npm run build
 
 artifacts:
-  base-directory: dist
   files:
-    - '**/*'
-  discard-paths: no
+    - dist/**/*
