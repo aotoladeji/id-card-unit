@@ -370,38 +370,37 @@ sudo tail -50 /var/log/nginx/access.log
 
 ---
 
-## PART 10 — Connecting the Capture App (Local Machine) to Live Server
+## PART 10 — Connecting the Capture App Using AWS Resources
 
-The capture app runs on your local computer and needs to communicate with the live server. Here is how:
+To keep deployment fully AWS-native (no Cloudflare/ngrok/3rd-party tunnels), move the capture integration endpoint into AWS.
 
-### Step 20: Allow the capture app to reach the live server
+### Step 20: Keep web traffic on the public API only
 
-The capture app needs to POST to `http://YOUR_SERVER_IP/api/...`. No special configuration needed on the server — the backend is already public.
+The web app should call your backend through your domain or EC2 public IP (for example `https://yourdomain.com/api/...`).
 
-### Step 21: Make the live server reach the capture app
+### Step 21: Host capture service in AWS (recommended)
 
-This is the tricky part. The capture app (port 5001) runs on your local machine, and the live server needs to call it. Your local machine is behind a router/ISP — the server cannot reach it directly unless you:
+Run the capture integration service on a second EC2 instance (or ECS task) in the same VPC.
 
-**Option A — Use ngrok on the capture app machine (easiest):**
+1. Launch an internal capture-service host in AWS (EC2 or ECS).
+2. Open only internal security group access on port `5001`.
+3. Allow backend server security group -> capture service security group on `5001`.
+4. Set backend env:
+    ```env
+    CAPTURE_APP_URL=http://<private-ip-or-private-dns>:5001
+    ```
+5. Restart backend:
+    ```bash
+    pm2 restart id-card-backend
+    ```
 
-1. Install ngrok on your local machine (already installed based on your project)
-2. Run: `ngrok http 5001`
-3. Copy the https URL it gives you (e.g. `https://abc123.ngrok-free.app`)
-4. SSH into your server and update the env:
-   ```bash
-   nano /home/ubuntu/id-card-unit/backend/.env
-   # Change CAPTURE_APP_URL to the ngrok URL
-   CAPTURE_APP_URL=https://abc123.ngrok-free.app
-   ```
-5. Restart the backend: `pm2 restart id-card-backend`
+### Step 22: Optional production hardening on AWS
 
-> **Downside:** The ngrok URL changes every time you restart ngrok (unless you pay for a fixed URL).
-
-**Option B — Static IP + Port forwarding (permanent solution):**
-
-1. Ask your ISP for a **static IP address** for your local network
-2. Log into your router and set up **port forwarding**: forward external port 5001 → your local machine's IP:5001
-3. Set `CAPTURE_APP_URL=http://YOUR_STATIC_IP:5001` in the server's `.env`
+1. Put backend behind an Application Load Balancer (ALB).
+2. Terminate TLS at ALB with ACM certificate.
+3. Keep backend EC2 private if possible (ALB in public subnet, app in private subnet).
+4. Store secrets in AWS Secrets Manager or SSM Parameter Store.
+5. Move PostgreSQL to Amazon RDS PostgreSQL.
 
 ---
 
@@ -478,4 +477,4 @@ pm2 restart id-card-backend
 - [ ] Backend started with PM2
 - [ ] Nginx configured and restarted
 - [ ] Site accessible at `http://YOUR_SERVER_IP`
-- [ ] Capture app reachable via ngrok or static IP
+- [ ] Capture integration hosted inside AWS VPC (no external tunnel)

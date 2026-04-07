@@ -3,6 +3,16 @@ import { useParams } from 'react-router-dom';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
+const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+const API_BASE_URL = rawApiBaseUrl.endsWith('/')
+  ? rawApiBaseUrl.slice(0, -1)
+  : rawApiBaseUrl;
+
+const buildApiUrl = (path) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+};
+
 export default function StudentScheduling() {
   const { configId } = useParams();
   const [step, setStep] = useState('login');
@@ -22,7 +32,7 @@ export default function StudentScheduling() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/public/scheduling/login', {
+      const response = await fetch(buildApiUrl('/public/scheduling/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ configId, studentId, loginCode })
@@ -52,7 +62,7 @@ export default function StudentScheduling() {
 
   const fetchSlots = async () => {
     try {
-      const response = await fetch(`/api/public/scheduling/${configId}/available-slots`);
+      const response = await fetch(buildApiUrl(`/public/scheduling/${configId}/available-slots`));
       const data = await response.json();
       if (response.ok) {
         setSlots(data.slots);
@@ -72,7 +82,7 @@ export default function StudentScheduling() {
     setError('');
 
     try {
-      const response = await fetch('/api/public/scheduling/book', {
+      const response = await fetch(buildApiUrl('/public/scheduling/book'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,7 +119,7 @@ export default function StudentScheduling() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/public/scheduling/cancel', {
+      const response = await fetch(buildApiUrl('/public/scheduling/cancel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId: student.id })

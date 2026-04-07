@@ -29,45 +29,46 @@ const pool = require('./config/database');
 // Create Express app
 const app = express();
 
+const parseAllowedOrigins = () => {
+  const explicit = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
+  if (explicit.length > 0) {
+    return explicit;
+  }
+
+  if (process.env.FRONTEND_URL) {
+    return [process.env.FRONTEND_URL.trim()];
+  }
+
+  return [];
+};
+
+const allowedOrigins = parseAllowedOrigins();
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('CORS not allowed from this origin'));
+  }
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Static files for uploads
 app.use('/uploads', express.static('uploads'));
-
-// Add this before your other routes
-app.get('/api/test-db', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT NOW()');
-    const tablesResult = await pool.query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-      ORDER BY table_name
-    `);
-    
-    const dailyReportsColumns = await pool.query(`
-      SELECT column_name, data_type
-      FROM information_schema.columns
-      WHERE table_name = 'daily_reports'
-      ORDER BY ordinal_position
-    `);
-    
-    res.json({
-      database_connected: true,
-      current_time: result.rows[0],
-      tables: tablesResult.rows,
-      daily_reports_columns: dailyReportsColumns.rows
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error.message,
-      stack: error.stack
-    });
-  }
-});
 
 // Routes
 app.use('/api/auth', authRoutes);

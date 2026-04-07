@@ -1,16 +1,60 @@
-# React + Vite
+# ID Card Unit
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+ID Card Unit is a React + Node.js system for card management, scheduling, reporting, inventory, and printing workflows.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Frontend: React + Vite
+- Backend: Node.js + Express
+- Database: PostgreSQL
+- Process manager: PM2
+- Reverse proxy/static serving: Nginx
 
-## React Compiler
+## Local development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1) Install dependencies
 
-## Expanding the ESLint configuration
+```bash
+# root frontend
+npm install
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# backend
+cd backend
+npm install
+```
+
+### 2) Configure backend env
+
+Edit `backend/.env` and provide your local database and app values.
+
+### 3) Run both services
+
+```bash
+# terminal 1
+cd backend
+npm run dev
+
+# terminal 2 (project root)
+npm run dev
+```
+
+Frontend runs on `http://localhost:3001` and proxies `/api` to backend `http://localhost:5000`.
+
+## AWS deployment (no Cloudflare/ngrok)
+
+Use the AWS-native deployment path in these files:
+
+- `deployment/aws/aws-deploy-runbook.md`
+- `deployment/aws/amplify-github-runbook.md`
+- `deployment/aws/ec2-bootstrap.sh`
+- `deployment/aws/nginx-id-card.conf`
+- `backend/.env.production.example`
+- `.env.production.example`
+
+If you are deploying frontend with Amplify GitHub integration, start with `deployment/aws/amplify-github-runbook.md`.
+
+The runbook is designed to use AWS resources directly (EC2/RDS/ALB/private VPC connectivity) and does not require tunnel-based services.
+
+## Existing detailed guide
+
+You can also refer to `DEPLOYMENT-GUIDE.md` for full server setup details.

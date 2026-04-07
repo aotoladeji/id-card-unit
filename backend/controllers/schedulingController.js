@@ -584,7 +584,8 @@ const sendSchedulingEmails = async (req, res) => {
     let sent = 0;
     let failed = 0;
     const failures = [];
-    const schedulingUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/schedule/${id}`;
+    const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
+    const schedulingUrl = `${frontendBaseUrl}/schedule/${id}`;
     const cfg = config.rows[0];
     const endDateStr = cfg.end_date ? new Date(cfg.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'TBD';
     const startDateStr = cfg.start_date ? new Date(cfg.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'TBD';
