@@ -1,15 +1,20 @@
 {
-    "framework": "vite",
-    "buildCommand": "npm ci && npm run build",
-    "outputDirectory": "dist",
-    "rewrites": [
+    "version": 2,
+    "builds": [
         {
-            "source": "/api/(.*)",
-            "destination": "https://id-card-unit-backend.onrender.com/api/$1"
+            "src": "backend/server.js",
+            "use": "@vercel/node"
         },
         {
-            "source": "/(.*)",
-            "destination": "/index.html"
+            "src": "package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "dist"
+            }
         }
+    ],
+    "routes": [
+        { "src": "/api/(.*)", "dest": "backend/server.js" },
+        { "src": "/(.*)", "dest": "/index.html" }
     ]
 }
