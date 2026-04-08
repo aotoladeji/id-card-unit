@@ -3,10 +3,10 @@ import { useParams } from 'react-router-dom';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
-const rawApiBaseUrl = (
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? '/api' : 'https://<your-backend-service>.onrender.com/api')
-).trim();
+const envApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
+const rawApiBaseUrl = (!import.meta.env.DEV && (!envApiBaseUrl || envApiBaseUrl === '/api'))
+  ? 'https://id-card-unit-backend.onrender.com/api'
+  : (envApiBaseUrl || '/api');
 const API_BASE_URL = rawApiBaseUrl.endsWith('/')
   ? rawApiBaseUrl.slice(0, -1)
   : rawApiBaseUrl;
