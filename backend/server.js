@@ -120,13 +120,35 @@ app.use('/api/print-queue', printQueueRoutes);
 app.use('/api/print-history', printHistoryRoutes);
 app.use('/api/collections', collectionsRoutes);
 
-// Health check route
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'Server is running',
-    timestamp: new Date().toISOString()
-  });
+// Health check route — includes DB connectivity and config diagnostics
+app.get('/api/health', async (req, res) => {
+  const checks = {
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV || 'undefined',
+    jwt_secret: process.env.JWT_SECRET ? 'set' : 'MISSING',
+    database: null,
+    users_table: null,
+  };
+
+  try {
+    const result = await pool.query('SELECT 1 AS alive');
+    checks.database = result.rows.length > 0 ? 'connected' : 'no-response';
+  } catch (err) {
+    checks.database = `error: ${err.code || err.message}`;
+    checks.status = 'DEGRADED';
+  }
+
+  try {
+    await pool.query('SELECT 1 FROM users LIMIT 1');
+    checks.users_table = 'exists';
+  } catch (err) {
+    checks.users_table = `error: ${err.code || err.message}`;
+    if (checks.status === 'OK') checks.status = 'DEGRADED';
+  }
+
+  const statusCode = checks.status === 'OK' ? 200 : 503;
+  res.status(statusCode).json(checks);
 });
 
 // Error handling middleware
