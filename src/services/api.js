@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+const rawApiBaseUrl = (
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? '/api' : 'https://<your-backend-service>.onrender.com/api')
+).trim();
 const API_BASE_URL = rawApiBaseUrl.endsWith('/')
   ? rawApiBaseUrl.slice(0, -1)
   : rawApiBaseUrl;
