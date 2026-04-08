@@ -29,8 +29,21 @@ const login = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Compare password
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    // Compare password.
+    // Supports bcrypt hashes and legacy plain-text values without throwing.
+    let passwordMatch = false;
+    const storedPassword = typeof user.password === 'string' ? user.password : '';
+
+    if (!storedPassword) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
+      passwordMatch = await bcrypt.compare(password, storedPassword);
+    } else {
+      // Backward compatibility for legacy records that may have plain-text passwords.
+      passwordMatch = password === storedPassword;
+    }
 
     if (!passwordMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -69,6 +82,11 @@ const login = async (req, res) => {
     });
 
   } catch (error) {
+    if (error && (error.code === '42P01' || /relation\s+"?users"?\s+does not exist/i.test(error.message || ''))) {
+      console.error('Login error: users table is missing. Run database schema/migrations.');
+      return res.status(503).json({ message: 'Database not initialized' });
+    }
+
     console.error('Login error:', error.message);
     console.error(error.stack);
     res.status(500).json({ message: 'Server error during login' });
