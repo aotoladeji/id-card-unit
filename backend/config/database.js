@@ -1,7 +1,13 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-const useDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const databaseUrl =
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.POSTGRES_PRISMA_URL;
+
+const useDatabaseUrl = Boolean(databaseUrl);
 
 const parseSslFlag = (value) => {
   if (!value) return false;
@@ -12,7 +18,7 @@ const shouldUseSsl = parseSslFlag(process.env.DB_SSL) || parseSslFlag(process.en
 
 const connectionConfig = useDatabaseUrl
   ? {
-      connectionString: process.env.DATABASE_URL,
+      connectionString: databaseUrl,
       ssl: shouldUseSsl ? { rejectUnauthorized: false } : false,
     }
   : {
@@ -25,11 +31,12 @@ const connectionConfig = useDatabaseUrl
     };
 
 console.log('🔎 DB CONFIG:', {
-  source: useDatabaseUrl ? 'DATABASE_URL' : 'DB_*',
+  source: useDatabaseUrl ? 'DATABASE_URL/POSTGRES_URL' : 'DB_*',
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   user: process.env.DB_USER,
   database: process.env.DB_NAME,
+  hasConnectionString: Boolean(databaseUrl),
   ssl: shouldUseSsl,
 });
 

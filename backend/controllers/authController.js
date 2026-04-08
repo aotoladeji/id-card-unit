@@ -87,13 +87,18 @@ const login = async (req, res) => {
       return res.status(503).json({ message: 'Database not initialized' });
     }
 
-    if (error && ['28P01', '3D000', '08001', '08006'].includes(error.code)) {
+    if (error && ['28P01', '3D000', '08001', '08006', '57P01'].includes(error.code)) {
       console.error('Login error: database connection/authentication issue:', error.code, error.message);
       return res.status(503).json({ message: 'Database unavailable' });
     }
 
-    if (error && ['ECONNREFUSED', 'ETIMEDOUT'].includes(error.code)) {
+    if (error && ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET'].includes(error.code)) {
       console.error('Login error: database network issue:', error.code, error.message);
+      return res.status(503).json({ message: 'Database unavailable' });
+    }
+
+    if (error && /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|connection terminated|getaddrinfo/i.test(error.message || '')) {
+      console.error('Login error: database connectivity message match:', error.message);
       return res.status(503).json({ message: 'Database unavailable' });
     }
 

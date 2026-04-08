@@ -120,6 +120,15 @@ app.use('/api/print-queue', printQueueRoutes);
 app.use('/api/print-history', printHistoryRoutes);
 app.use('/api/collections', collectionsRoutes);
 
+// Liveness endpoint (no DB access)
+app.get('/api/ping', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'API reachable',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Health check route — includes DB connectivity and config diagnostics
 app.get('/api/health', async (req, res) => {
   const checks = {
