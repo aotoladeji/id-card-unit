@@ -9,7 +9,7 @@ const login = async (req, res) => {
 
     if (!process.env.JWT_SECRET) {
       console.error('Login error: JWT_SECRET is not set');
-      return res.status(500).json({ message: 'Server configuration error' });
+      return res.status(503).json({ message: 'Authentication service not configured' });
     }
 
     // Validate input
@@ -85,6 +85,21 @@ const login = async (req, res) => {
     if (error && (error.code === '42P01' || /relation\s+"?users"?\s+does not exist/i.test(error.message || ''))) {
       console.error('Login error: users table is missing. Run database schema/migrations.');
       return res.status(503).json({ message: 'Database not initialized' });
+    }
+
+    if (error && ['28P01', '3D000', '08001', '08006'].includes(error.code)) {
+      console.error('Login error: database connection/authentication issue:', error.code, error.message);
+      return res.status(503).json({ message: 'Database unavailable' });
+    }
+
+    if (error && ['ECONNREFUSED', 'ETIMEDOUT'].includes(error.code)) {
+      console.error('Login error: database network issue:', error.code, error.message);
+      return res.status(503).json({ message: 'Database unavailable' });
+    }
+
+    if (error && error.code === '42703') {
+      console.error('Login error: database schema mismatch:', error.message);
+      return res.status(503).json({ message: 'Database schema mismatch' });
     }
 
     console.error('Login error:', error.message);
