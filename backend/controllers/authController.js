@@ -7,6 +7,11 @@ const login = async (req, res) => {
   try {
     const { username, password } = req.body;
 
+    if (!process.env.JWT_SECRET) {
+      console.error('Login error: JWT_SECRET is not set');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+
     // Validate input
     if (!username || !password) {
       return res.status(400).json({ message: 'Username and password are required' });
@@ -43,11 +48,15 @@ const login = async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    // Log activity
-    await pool.query(
-      'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
-      [user.id, 'LOGIN', `User ${user.username} logged in`]
-    );
+    // Log activity, but do not fail login if logging table is unavailable.
+    try {
+      await pool.query(
+        'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
+        [user.id, 'LOGIN', `User ${user.username} logged in`]
+      );
+    } catch (logError) {
+      console.warn('Non-fatal login activity log error:', logError.message);
+    }
 
     // Return user data (excluding password) and token
     const { password: _, ...userWithoutPassword } = user;
@@ -60,7 +69,8 @@ const login = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Login error:', error.message);
+    console.error(error.stack);
     res.status(500).json({ message: 'Server error during login' });
   }
 };
