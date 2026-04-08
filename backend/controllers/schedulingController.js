@@ -8,6 +8,38 @@ const generateLoginCode = () => {
   return crypto.randomInt(100000, 999999).toString();
 };
 
+const normalizeBaseUrl = (value) => {
+  if (!value) return '';
+
+  const trimmed = String(value).trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    return new URL(withProtocol).origin;
+  } catch {
+    return '';
+  }
+};
+
+const getFrontendBaseUrl = () => {
+  const candidates = [
+    process.env.FRONTEND_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_URL
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeBaseUrl(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return 'http://localhost:3001';
+};
+
 // Email transporter setup
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -584,8 +616,8 @@ const sendSchedulingEmails = async (req, res) => {
     let sent = 0;
     let failed = 0;
     const failures = [];
-    const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
-    const schedulingUrl = `${frontendBaseUrl}/schedule/${id}`;
+    const frontendBaseUrl = getFrontendBaseUrl();
+    const schedulingUrl = `${frontendBaseUrl}/schedule/${encodeURIComponent(String(id))}`;
     const cfg = config.rows[0];
     const endDateStr = cfg.end_date ? new Date(cfg.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'TBD';
     const startDateStr = cfg.start_date ? new Date(cfg.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'TBD';
