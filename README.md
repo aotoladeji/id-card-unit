@@ -7,7 +7,7 @@ ID Card Unit is a React + Node.js system for card management, scheduling, report
 - Frontend: React + Vite
 - Backend: Node.js + Express
 - Database: PostgreSQL
-- Hosting: Render (Static Site + Web Service + PostgreSQL)
+- Hosting: Vercel (frontend) + Render (backend and PostgreSQL)
 
 ## Local development
 
@@ -39,16 +39,17 @@ npm run dev
 
 Frontend runs on `http://localhost:3001` and proxies `/api` to backend `http://localhost:5000`.
 
-## Render deployment
+## Production deployment
 
-Use Render for production deployment:
+Use this setup for production:
 
+- Frontend: Vercel (from repo root)
 - Backend: Render Web Service (from `backend/`)
-- Frontend: Render Static Site (from repo root)
 - Database: Render PostgreSQL
 
 Key config files:
 
+- `vercel.json`
 - `render.yaml`
 - `backend/.env.production.example`
 - `.env.production.example`

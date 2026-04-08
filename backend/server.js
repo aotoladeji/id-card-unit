@@ -29,10 +29,35 @@ const pool = require('./config/database');
 // Create Express app
 const app = express();
 
+const normalizeOrigin = (value) => {
+  if (!value) return '';
+
+  try {
+    return new URL(value).origin.toLowerCase();
+  } catch {
+    return value.trim().replace(/\/+$/, '').toLowerCase();
+  }
+};
+
+const allowVercelPreviews = String(process.env.CORS_ALLOW_VERCEL_PREVIEWS || '').toLowerCase() === 'true';
+
+const isAllowedVercelPreviewOrigin = (origin) => {
+  if (!allowVercelPreviews) {
+    return false;
+  }
+
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' && url.hostname.endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
+};
+
 const parseAllowedOrigins = () => {
   const explicit = (process.env.CORS_ORIGINS || '')
     .split(',')
-    .map(origin => origin.trim())
+    .map(origin => normalizeOrigin(origin))
     .filter(Boolean);
 
   if (explicit.length > 0) {
@@ -40,7 +65,7 @@ const parseAllowedOrigins = () => {
   }
 
   if (process.env.FRONTEND_URL) {
-    return [process.env.FRONTEND_URL.trim()];
+    return [normalizeOrigin(process.env.FRONTEND_URL)];
   }
 
   return [];
@@ -54,10 +79,17 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    const normalizedOrigin = normalizeOrigin(origin);
+
+    if (
+      allowedOrigins.length === 0 ||
+      allowedOrigins.includes(normalizedOrigin) ||
+      isAllowedVercelPreviewOrigin(normalizedOrigin)
+    ) {
       return callback(null, true);
     }
 
+    console.warn(`Blocked CORS origin: ${origin}`);
     return callback(new Error('CORS not allowed from this origin'));
   }
 };

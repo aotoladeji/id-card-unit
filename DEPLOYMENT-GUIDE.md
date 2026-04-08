@@ -1,10 +1,10 @@
-# Deployment Guide - ID Card Unit (Render)
+# Deployment Guide - ID Card Unit (Vercel + Render)
 
-This guide deploys the app on Render without AWS, Cloudflare, or ngrok.
+This guide deploys the frontend on Vercel and backend/database on Render.
 
 ## Architecture
 
-- Frontend: Render Static Site
+- Frontend: Vercel (Vite)
 - Backend: Render Web Service (Node/Express)
 - Database: Render PostgreSQL
 - Capture app: stays on your local machine (not deployed)
@@ -15,6 +15,7 @@ This guide deploys the app on Render without AWS, Cloudflare, or ngrok.
 2. Ensure these files exist and are updated:
    - `.env.production.example`
    - `backend/.env.production.example`
+   - `vercel.json`
    - `render.yaml`
 
 ## 2) Create Render PostgreSQL
@@ -45,8 +46,9 @@ This guide deploys the app on Render without AWS, Cloudflare, or ngrok.
    - `NODE_ENV` = `production`
    - `JWT_SECRET` = long random string
    - `MAX_FILE_SIZE` = `5242880`
-   - `FRONTEND_URL` = your Render frontend URL
-   - `CORS_ORIGINS` = your Render frontend URL
+   - `FRONTEND_URL` = your Vercel frontend URL
+   - `CORS_ORIGINS` = your Vercel frontend URL
+   - `CORS_ALLOW_VERCEL_PREVIEWS` = `true` (optional, for Vercel preview deployments)
    - `CAPTURE_APP_URL` = your capture app endpoint (if used)
    - `CAPTURE_APP_OUTPUT_DIR` = `/opt/render/project/src/backend/uploads/output`
    - `VERIFY_API_KEY` = your key
@@ -63,16 +65,14 @@ node run-approved-cards-migration.js
 node run-query-migration.js
 ```
 
-## 5) Create Frontend Static Site on Render
+## 5) Create Frontend Project on Vercel
 
-1. Create a new Static Site from the same GitHub repo.
-2. Configure:
-   - Root Directory: project root
-   - Build Command: `npm ci ; npm run build`
-   - Publish Directory: `dist`
-3. Add environment variable:
+1. In Vercel, import the same GitHub repository.
+2. Framework preset: Vite.
+3. Keep default build settings (build command and output are also defined in `vercel.json`).
+4. Add environment variable:
    - `VITE_API_BASE_URL` = `https://<your-backend-service>.onrender.com/api`
-4. Deploy the frontend.
+5. Deploy the frontend.
 
 ## 6) Verify Production
 
@@ -80,10 +80,11 @@ node run-query-migration.js
    - `https://<your-backend-service>.onrender.com/api/health`
 2. Open frontend URL and log in.
 3. Submit a scheduling request and confirm email link opens:
-   - `https://<your-frontend-service>.onrender.com/schedule/<id>`
+   - `https://<your-vercel-domain>/schedule/<id>`
 
 ## Notes
 
 - If backend sleeps on free tier, first request may be slow.
 - Keep `FRONTEND_URL` and `CORS_ORIGINS` aligned with your frontend domain.
+- For stricter security, keep `CORS_ALLOW_VERCEL_PREVIEWS=false` and list only trusted origins in `CORS_ORIGINS`.
 - Do not commit real `.env` files with secrets.
