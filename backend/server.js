@@ -3,7 +3,9 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 
 // Load environment variables
-dotenv.config();
+if (!process.env.VERCEL) {
+  dotenv.config();
+}
 
 // Import routes
 const authRoutes = require('./routes/auth');

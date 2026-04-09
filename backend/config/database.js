@@ -1,5 +1,7 @@
 const { Pool } = require('pg');
-require('dotenv').config();
+if (!process.env.VERCEL) {
+  require('dotenv').config();
+}
 
 const databaseUrl =
   process.env.DATABASE_URL ||
