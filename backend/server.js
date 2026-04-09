@@ -133,11 +133,29 @@ app.get('/api/ping', (req, res) => {
 
 // Health check route — includes DB connectivity and config diagnostics
 app.get('/api/health', async (req, res) => {
+  const databaseUrl =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_PRISMA_URL ||
+    '';
+
+  let dbHostHint = process.env.DB_HOST || 'unset';
+  if (databaseUrl) {
+    try {
+      dbHostHint = new URL(databaseUrl).hostname;
+    } catch {
+      dbHostHint = 'invalid_connection_string';
+    }
+  }
+
   const checks = {
     status: 'OK',
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV || 'undefined',
     jwt_secret: process.env.JWT_SECRET ? 'set' : 'MISSING',
+    db_source: databaseUrl ? 'DATABASE_URL/POSTGRES_URL' : 'DB_*',
+    db_host_hint: dbHostHint,
     database: null,
     users_table: null,
   };
