@@ -120,7 +120,17 @@ const verifyAndCollect = async (req, res) => {
     }
 
     // Verify against capture app (which reads from shared database)
-    const { scannedFingerprint, scanPayload } = req.body;
+    const body = req.body || {};
+    const { scannedFingerprint, scanPayload } = body;
+
+    if (!scannedFingerprint || typeof scannedFingerprint !== 'string') {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message: 'No fingerprint scan payload was provided. Please scan and try again.'
+      });
+    }
+
     const verification = await verifyFingerprint(collection.card_id, scannedFingerprint, scanPayload);
 
     // Handle connectivity/config issues
@@ -158,6 +168,14 @@ const verifyAndCollect = async (req, res) => {
       [req.user.id, `Verified by fingerprint — Collected by: ${studentName}`, id]
     );
 
+    if (result.rows.length === 0) {
+      return res.status(409).json({
+        success: false,
+        verified: false,
+        message: 'Collection record changed during verification. Please refresh and try again.'
+      });
+    }
+
     const card = result.rows[0];
 
     // Notify capture app (async)
@@ -178,7 +196,12 @@ const verifyAndCollect = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in fingerprint collection:', error);
-    res.status(500).json({ message: 'Error verifying fingerprint' });
+    res.status(500).json({
+      success: false,
+      verified: false,
+      message: 'Error verifying fingerprint',
+      diagnostic: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
