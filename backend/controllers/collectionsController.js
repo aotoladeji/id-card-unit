@@ -120,8 +120,8 @@ const verifyAndCollect = async (req, res) => {
     }
 
     // Verify against capture app (which reads from shared database)
-    const { scannedFingerprint } = req.body;
-    const verification = await verifyFingerprint(collection.card_id, scannedFingerprint);
+    const { scannedFingerprint, scanPayload } = req.body;
+    const verification = await verifyFingerprint(collection.card_id, scannedFingerprint, scanPayload);
 
     // Handle connectivity/config issues
     if (verification.configIssue || verification.connectionError || verification.timeoutError) {

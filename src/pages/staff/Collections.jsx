@@ -10,6 +10,8 @@ export default function Collections() {
   const [fingerprintModal, setFingerprintModal] = useState(null); // { id, name }
   const [scanState, setScanState] = useState('idle'); // idle | scanning | scanned | verifying
   const [scannedImage, setScannedImage] = useState(null);
+  const [scanPayload, setScanPayload] = useState(null);
+  const [lastScanSignature, setLastScanSignature] = useState(null);
 
   useEffect(() => {
     fetchCollections();
@@ -69,6 +71,7 @@ export default function Collections() {
     setFingerprintModal(null);
     setScanState('idle');
     setScannedImage(null);
+    setScanPayload(null);
   };
 
   // Step 1 — trigger the Windows fingerprint scanner service
@@ -88,12 +91,26 @@ export default function Collections() {
         setScanState('idle');
         return;
       }
+      if (!data || (typeof data !== 'object')) {
+        showNotification('Scanner returned an invalid response. Please try again.', 'error');
+        setScanState('idle');
+        return;
+      }
+
+      // Keep full scanner payload so backend can use any template fields available.
+      setScanPayload(data);
+
       if (!data.FigPicBase64) {
         showNotification('No fingerprint captured. Please try again.', 'error');
         setScanState('idle');
         return;
       }
       setScannedImage(data.FigPicBase64);
+      const signature = String(data.FigPicBase64).slice(0, 64);
+      if (lastScanSignature && lastScanSignature === signature) {
+        showNotification('Scanner returned the same fingerprint image as previous scan. Please reposition finger and rescan.', 'warning');
+      }
+      setLastScanSignature(signature);
       setScanState('scanned');
     } catch {
       showNotification('Could not reach fingerprint scanner service. Ensure the device driver is running.', 'error');
@@ -112,7 +129,10 @@ export default function Collections() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ scannedFingerprint: scannedImage })
+        body: JSON.stringify({
+          scannedFingerprint: scannedImage,
+          scanPayload
+        })
       });
       const data = await response.json();
       if (response.ok && data.verified) {
@@ -348,6 +368,9 @@ export default function Collections() {
                   alt="Scanned fingerprint"
                   style={{ height: '120px', border: '2px solid var(--border)', borderRadius: '8px', marginBottom: '1.25rem' }}
                 />
+                <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                  Scanner response received. Proceed to verify.
+                </div>
                 <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                   <button className="btn btn-secondary" onClick={closeFingerprintModal}>Cancel</button>
                   <button className="btn btn-secondary" onClick={handleScan}>🔄 Rescan</button>
