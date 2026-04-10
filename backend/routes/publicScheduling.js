@@ -107,17 +107,25 @@ router.get('/:configId/available-slots', async (req, res) => {
 
 // Book appointment
 router.post('/book', async (req, res) => {
-  const client = await pool.connect();
-  
+  const { studentId, slotId, configId } = req.body;
+  const parsedStudentId = Number.parseInt(studentId, 10);
+  const parsedSlotId = Number.parseInt(slotId, 10);
+  const parsedConfigId = Number.parseInt(configId, 10);
+
+  if (!Number.isInteger(parsedStudentId) || !Number.isInteger(parsedSlotId) || !Number.isInteger(parsedConfigId)) {
+    return res.status(400).json({ message: 'Invalid booking request payload' });
+  }
+
+  let client;
   try {
-    const { studentId, slotId, configId } = req.body;
+    client = await pool.connect();
 
     await client.query('BEGIN');
 
     // Check if student already has appointment
     const existingAppt = await client.query(
       'SELECT * FROM appointments WHERE student_id = $1',
-      [studentId]
+      [parsedStudentId]
     );
 
     if (existingAppt.rows.length > 0) {
@@ -127,8 +135,12 @@ router.post('/book', async (req, res) => {
 
     // Check slot availability
     const slot = await client.query(
-      'SELECT * FROM time_slots WHERE id = $1 AND booked < capacity FOR UPDATE',
-      [slotId]
+      `SELECT * FROM time_slots
+       WHERE id = $1
+         AND config_id = $2
+         AND booked < capacity
+       FOR UPDATE`,
+      [parsedSlotId, parsedConfigId]
     );
 
     if (slot.rows.length === 0 || slot.rows[0].booked >= slot.rows[0].capacity) {
@@ -141,24 +153,35 @@ router.post('/book', async (req, res) => {
       `INSERT INTO appointments 
        (config_id, student_id, slot_id, appointment_date, appointment_time)
        VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (student_id) DO NOTHING
        RETURNING *`,
-      [configId, studentId, slotId, slot.rows[0].slot_date, slot.rows[0].slot_time]
+      [parsedConfigId, parsedStudentId, parsedSlotId, slot.rows[0].slot_date, slot.rows[0].slot_time]
     );
+
+    if (appointment.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'You already have an appointment scheduled' });
+    }
 
     // Update slot booking count
     await client.query(
       'UPDATE time_slots SET booked = booked + 1 WHERE id = $1',
-      [slotId]
+      [parsedSlotId]
     );
 
     // Update student status and invalidate login code (one-time use)
-    await client.query(
+    const studentUpdate = await client.query(
       `UPDATE scheduled_students 
        SET has_scheduled = true, scheduled_date = $1, scheduled_time = $2,
            login_code = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
-      [slot.rows[0].slot_date, slot.rows[0].slot_time, studentId]
+      [slot.rows[0].slot_date, slot.rows[0].slot_time, parsedStudentId]
     );
+
+    if (studentUpdate.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Student not found for this booking' });
+    }
 
     await client.query('COMMIT');
 
@@ -168,11 +191,28 @@ router.post('/book', async (req, res) => {
       appointment: appointment.rows[0]
     });
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error('Error booking appointment:', error);
+
+    if (error.code === '23503') {
+      return res.status(400).json({ message: 'Invalid booking reference data' });
+    }
+
+    if (error.code === '23505') {
+      return res.status(409).json({ message: 'Appointment already exists for this student' });
+    }
+
+    if (error.code === '22P02') {
+      return res.status(400).json({ message: 'Invalid booking identifiers provided' });
+    }
+
     res.status(500).json({ message: 'Error booking appointment' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
