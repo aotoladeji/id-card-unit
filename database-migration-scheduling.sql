@@ -96,6 +96,7 @@ ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS important_message TEXT;
 
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE scheduled_students ALTER COLUMN login_code DROP NOT NULL;
 
 ALTER TABLE appointments ALTER COLUMN status SET DEFAULT 'scheduled';
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS notes TEXT;
