@@ -4,18 +4,6 @@ const pool = require('../../config/database');
 const fs = require('fs');
 const path = require('path');
 
-const parseStatements = (sqlText) => {
-  const withoutLineComments = sqlText
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('--'))
-    .join('\n');
-
-  return withoutLineComments
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-};
-
 router.post('/run-scheduling-migration', async (req, res) => {
   try {
     const requiredKey = process.env.MIGRATION_API_KEY;
@@ -31,35 +19,8 @@ router.post('/run-scheduling-migration', async (req, res) => {
     const migrationPath = path.join(__dirname, '../../../database-migration-scheduling.sql');
     const sql = fs.readFileSync(migrationPath, 'utf8');
 
-    const statements = parseStatements(sql);
-    
-    console.log(`📝 Found ${statements.length} SQL statements to execute\n`);
-    
-    for (let i = 0; i < statements.length; i++) {
-      const statement = statements[i];
-      
-      if (statement.length > 10) {
-        try {
-          await pool.query(statement);
-          
-          if (statement.includes('CREATE TABLE')) {
-            const tableName = statement.match(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/i)?.[1];
-            console.log(`✅ Created table: ${tableName}`);
-          } else if (statement.includes('CREATE INDEX')) {
-            const indexName = statement.match(/CREATE INDEX (?:IF NOT EXISTS )?(\w+)/i)?.[1];
-            console.log(`✅ Created index: ${indexName}`);
-          }
-        } catch (error) {
-          if (error.message.includes('already exists')) {
-            const match = statement.match(/CREATE (?:TABLE|INDEX) (?:IF NOT EXISTS )?(\w+)/i);
-            const name = match?.[1];
-            console.log(`ℹ️  Already exists: ${name}`);
-          } else {
-            throw error;
-          }
-        }
-      }
-    }
+    console.log('📝 Executing migration script...\n');
+    await pool.query(sql);
     
     console.log('\n🎉 Scheduling migration completed successfully!\n');
     
