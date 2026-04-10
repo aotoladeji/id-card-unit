@@ -2,6 +2,18 @@ const pool = require('./config/database');
 const fs = require('fs');
 const path = require('path');
 
+const parseStatements = (sqlText) => {
+  const withoutLineComments = sqlText
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  return withoutLineComments
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
+};
+
 async function runSchedulingMigration() {
   console.log('🔄 Starting scheduling tables migration...\n');
   
@@ -12,11 +24,7 @@ async function runSchedulingMigration() {
     
     const sql = fs.readFileSync(migrationPath, 'utf8');
     
-    // Split by semicolons to execute statements separately
-    const statements = sql
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
+    const statements = parseStatements(sql);
     
     console.log(`📝 Found ${statements.length} SQL statements to execute\n`);
     

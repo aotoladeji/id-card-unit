@@ -4,17 +4,34 @@ const pool = require('../../config/database');
 const fs = require('fs');
 const path = require('path');
 
+const parseStatements = (sqlText) => {
+  const withoutLineComments = sqlText
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  return withoutLineComments
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
+};
+
 router.post('/run-scheduling-migration', async (req, res) => {
   try {
+    const requiredKey = process.env.MIGRATION_API_KEY;
+    if (requiredKey) {
+      const providedKey = req.get('x-migration-key');
+      if (!providedKey || providedKey !== requiredKey) {
+        return res.status(403).json({ success: false, error: 'Forbidden' });
+      }
+    }
+
     console.log('🔄 Starting scheduling tables migration via API...\n');
     
-    const migrationPath = path.join(__dirname, '../../database-migration-scheduling.sql');
+    const migrationPath = path.join(__dirname, '../../../database-migration-scheduling.sql');
     const sql = fs.readFileSync(migrationPath, 'utf8');
-    
-    const statements = sql
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
+
+    const statements = parseStatements(sql);
     
     console.log(`📝 Found ${statements.length} SQL statements to execute\n`);
     
