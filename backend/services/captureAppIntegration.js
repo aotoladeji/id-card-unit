@@ -4,6 +4,34 @@ const pool = require('../config/database');
 // URL of the capture app API
 const CAPTURE_APP_URL = process.env.CAPTURE_APP_URL || 'http://localhost:5001';
 
+const normalizeFingerprint = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // Support data URL payloads from some scanner clients.
+  const marker = 'base64,';
+  const markerIndex = trimmed.indexOf(marker);
+  if (markerIndex >= 0) {
+    return trimmed.slice(markerIndex + marker.length).replace(/\s+/g, '');
+  }
+  return trimmed.replace(/\s+/g, '');
+};
+
+const extractCardIdentity = (card) => ({
+  id: card.id ?? card.card_id ?? card.cardId,
+  surname: card.surname ?? card.last_name ?? '',
+  other_names: card.other_names ?? card.first_name ?? card.otherNames ?? '',
+  matric_no: card.matric_no ?? card.matricNumber ?? null,
+  staff_id: card.staff_id ?? card.staffId ?? null,
+  faculty: card.faculty ?? null,
+  department: card.department ?? null,
+  level: card.level ?? null,
+  card_number: card.card_number ?? card.cardNumber ?? null,
+  session: card.session ?? null,
+  passport_photo: card.passport_photo ?? card.photo ?? null,
+  approved_at: card.approved_at ?? card.updated_at ?? card.created_at ?? new Date()
+});
+
 const ensureQueueExclusionsTable = async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS print_queue_exclusions (
@@ -41,20 +69,30 @@ const syncApprovedCards = async () => {
     console.log('Capture app URL:', CAPTURE_APP_URL);
     console.log('========================================');
     
-    // Fetch approved cards from capture app with timeout
-    const response = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
+    // Fetch queue cards from capture app (source of truth for printable approved cards)
+    const response = await axios.get(`${CAPTURE_APP_URL}/api/printing/queue`, {
       timeout: 10000 // 10 second timeout
     });
     
     console.log('📡 Response status:', response.status);
     console.log('📦 Response data:', JSON.stringify(response.data, null, 2));
     
-    if (!response.data.success) {
-      throw new Error('Failed to fetch approved cards');
+    if (!response.data?.success) {
+      throw new Error('Failed to fetch print queue from capture app');
     }
 
-    const approvedCards = response.data.cards || [];
-    console.log(`📋 Found ${approvedCards.length} approved cards in capture app`);
+    const queueCards = response.data.cards || response.data.queue || [];
+    const approvedCards = queueCards
+      .map(extractCardIdentity)
+      .filter((card) => card.id !== undefined && card.id !== null)
+      .filter((card) => {
+        // Keep only approved cards when status is present.
+        const source = queueCards.find((q) => String(q.id ?? q.card_id ?? q.cardId) === String(card.id));
+        if (!source?.status) return true;
+        return String(source.status).toLowerCase() === 'approved';
+      });
+
+    console.log(`📋 Found ${approvedCards.length} approved queue cards in capture app`);
     
     if (approvedCards.length > 0) {
       console.log('Sample card data:', JSON.stringify(approvedCards[0], null, 2));
@@ -205,7 +243,7 @@ const syncApprovedCards = async () => {
     // Handle connection errors gracefully
     if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
       console.error('❌ Capture app is not available at:', CAPTURE_APP_URL);
-      console.error('   Make sure capture app is running on port 5001');
+      console.error('   Make sure capture app is reachable at CAPTURE_APP_URL');
       return { 
         addedToHistory: 0,
         addedToQueue: 0,
@@ -277,31 +315,54 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64) => {
   }
 
   try {
-    console.log(`[Fingerprint] Verifying card ${cardId} against capture app at ${CAPTURE_APP_URL}`);
-    
-    const response = await axios.post(
-      `${CAPTURE_APP_URL}/api/verify/fingerprint`,
-      {
-        cardId,
-        fingerprintData: scannedFingerprintBase64 || null,
-        scannedFingerprint: scannedFingerprintBase64 || null
-      },
+    console.log(`[Fingerprint] Fetching templates for card ${cardId} from ${CAPTURE_APP_URL}`);
+
+    const response = await axios.get(
+      `${CAPTURE_APP_URL}/api/printing/fingerprint?cardId=${encodeURIComponent(cardId)}`,
       {
         timeout: 15000,
         headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
       }
     );
-    
-    console.log(`[Fingerprint] ✅ Capture app response for card ${cardId}:`, {
-      matched: response.data.matched,
-      message: response.data.message
-    });
-    
+
+    const payload = response.data || {};
+    if (!payload.success) {
+      return {
+        success: false,
+        matched: false,
+        message: payload.message || 'Fingerprint record not found'
+      };
+    }
+
+    const scanned = normalizeFingerprint(scannedFingerprintBase64);
+    if (!scanned) {
+      return {
+        success: false,
+        matched: false,
+        message: 'Scanned fingerprint is required for verification'
+      };
+    }
+
+    const fingerprints = payload.fingerprints || payload;
+    const templates = [
+      fingerprints.left_thumb,
+      fingerprints.left_index,
+      fingerprints.right_thumb,
+      fingerprints.right_index
+    ]
+      .map(normalizeFingerprint)
+      .filter(Boolean);
+
+    const matched = templates.includes(scanned);
     return {
-      success: response.data.success || false,
-      matched: response.data.matched || false,
-      studentName: response.data.studentName || null,
-      message: response.data.message || 'Verification complete'
+      success: true,
+      matched,
+      studentName:
+        payload.studentName ||
+        payload.full_name ||
+        [payload.surname, payload.other_names].filter(Boolean).join(' ').trim() ||
+        null,
+      message: matched ? 'Fingerprint matched' : 'Fingerprint did not match stored templates'
     };
   } catch (error) {
     if (error.code === 'ECONNREFUSED') {
@@ -331,6 +392,13 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64) => {
     
     if (error.response) {
       console.error(`[Fingerprint] ❌ Capture app returned ${error.response.status}:`, error.response.data);
+      if (error.response.status === 404) {
+        return {
+          success: false,
+          matched: false,
+          message: 'Fingerprint record not found for this card'
+        };
+      }
       return {
         success: false,
         matched: false,

@@ -18,13 +18,13 @@ export default function PrintQueue() {
   useEffect(() => {
     fetchQueue();
     
-    // Auto-sync every 30 seconds (like Card Approval)
+    // Auto-sync every few seconds to keep queue aligned with capture app source of truth.
     const interval = setInterval(() => {
       console.log('[Print Queue Auto-sync] Syncing from capture app...');
       syncCards(true); // silent sync
-    }, 30000);
+    }, 5000);
     
-    console.log('[Print Queue] Auto-sync enabled (every 30 seconds)');
+    console.log('[Print Queue] Auto-sync enabled (every 5 seconds)');
     return () => {
       clearInterval(interval);
       console.log('[Print Queue] Auto-sync disabled');
@@ -455,9 +455,9 @@ export default function PrintQueue() {
       
       // Provide helpful error messages
       if (error.message.includes('Capture app is not available')) {
-        throw new Error('Capture app is offline. Please ensure it is running on port 5001.');
+        throw new Error('Capture app is offline or unreachable. Please verify CAPTURE_APP_URL and deployment status.');
       } else if (error.message.includes('not found')) {
-        throw new Error('Card image not found. The capture app may not have generated this card yet.');
+        throw new Error('Card output not found yet. The capture app may still be generating the printable SVG.');
       } else if (error.message.includes('Pop-up blocked')) {
         throw new Error('Pop-up blocked. Please allow pop-ups for this site to print cards.');
       }

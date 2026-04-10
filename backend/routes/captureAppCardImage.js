@@ -103,6 +103,22 @@ const fetchImageFromOutputImage = async (cardId) => {
   return null;
 };
 
+const fetchSvgFromOutputEndpoint = async (cardId) => {
+  const svgResponse = await axios.get(
+    `${CAPTURE_APP_URL}/api/printing/output-svg?cardId=${encodeURIComponent(cardId)}`,
+    {
+      timeout: 10000,
+      validateStatus: (status) => status === 200,
+      responseType: 'text'
+    }
+  );
+
+  if (!svgResponse.data) return null;
+  const svgText = String(svgResponse.data);
+  if (!svgText.includes('<svg')) return null;
+  return Buffer.from(svgText, 'utf8');
+};
+
 const buildIdCandidates = (requestedId, approvedCard) => {
   const candidates = [requestedId];
 
@@ -158,7 +174,29 @@ router.get('/:cardId/image', async (req, res) => {
     // According to the API guide, the capture app provides:
     // GET /api/idcard/:userId - Returns PNG image directly
     
-    // Method 1: Use capture output listing and load the file URL for this card.
+    // Method 1: Prefer capture app SVG output by card ID.
+    try {
+      const svgBuffer = await fetchSvgFromOutputEndpoint(cardId);
+      if (svgBuffer) {
+        console.log(`✅ Successfully fetched card SVG from /api/printing/output-svg for card ${cardId}`);
+        res.set('Content-Type', 'image/svg+xml; charset=utf-8');
+        res.set('Cache-Control', 'public, max-age=3600');
+        return res.send(svgBuffer);
+      }
+    } catch (error) {
+      console.error(`❌ /api/printing/output-svg failed: ${error.message}`);
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        return res.status(503).json({
+          success: false,
+          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
+        });
+      }
+      if (error.response?.status === 404) {
+        console.log(`ℹ️ SVG not ready/not found for card ${cardId}, trying fallback endpoints...`);
+      }
+    }
+
+    // Method 2: Use capture output listing and load the file URL for this card.
     try {
       const outputListImage = await fetchImageFromOutputList(cardId);
       if (outputListImage) {
@@ -179,7 +217,7 @@ router.get('/:cardId/image', async (req, res) => {
       }
     }
 
-    // Method 2: Fallback to output-image endpoint by card ID.
+    // Method 3: Fallback to output-image endpoint by card ID.
     try {
       const outputImage = await fetchImageFromOutputImage(cardId);
       if (outputImage) {
@@ -199,7 +237,7 @@ router.get('/:cardId/image', async (req, res) => {
       }
     }
 
-    // Method 3: Legacy /api/idcard/:userId endpoint (kept as fallback)
+    // Method 4: Legacy /api/idcard/:userId endpoint (kept as fallback)
     try {
       const directImage = await fetchImageFromCaptureApp(cardId);
       if (directImage) {
@@ -223,7 +261,7 @@ router.get('/:cardId/image', async (req, res) => {
       console.log('Trying fallback methods...');
     }
 
-    // Method 4: Resolve identifier mismatch via approved cards list
+    // Method 5: Resolve identifier mismatch via approved cards list
     try {
       const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
         timeout: 10000
@@ -264,7 +302,7 @@ router.get('/:cardId/image', async (req, res) => {
       console.log(`Approved-card lookup failed while resolving ID ${cardId}: ${lookupError.message}`);
     }
     
-    // Method 5: Try alternative endpoints (fallback)
+    // Method 6: Try alternative endpoints (fallback)
     const fallbackEndpoints = [
         `/api/printing/card-image/${encodeURIComponent(cardId)}`,
         `/output/card_${encodeURIComponent(cardId)}.png`
@@ -291,7 +329,7 @@ router.get('/:cardId/image', async (req, res) => {
       }
     }
     
-    // Method 6: Try file system as last resort (if configured)
+    // Method 7: Try file system as last resort (if configured)
     if (CAPTURE_APP_OUTPUT_DIR) {
       console.log('Trying file system access...');
       

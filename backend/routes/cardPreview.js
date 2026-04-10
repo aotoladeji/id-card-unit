@@ -36,14 +36,14 @@ router.get('/diagnostic', authenticateToken, async (req, res) => {
       };
     }
 
-    // Test 2: Check if approved cards endpoint works
+    // Test 2: Check if print queue endpoint works
     try {
-      const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
+      const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/queue`, {
         timeout: 5000
       });
       diagnostics.tests.approvedCardsEndpoint = {
         status: 'success',
-        message: 'Approved cards endpoint is working',
+        message: 'Print queue endpoint is working',
         cardCount: approvedResponse.data?.cards?.length || 0,
         sampleCardIds: approvedResponse.data?.cards?.slice(0, 3).map(c => c.id) || []
       };
@@ -54,9 +54,9 @@ router.get('/diagnostic', authenticateToken, async (req, res) => {
       };
     }
 
-    // Test 3: Check if card image endpoint works (test with first approved card)
+    // Test 3: Check if card SVG output endpoint works (test with first queue card)
     try {
-      const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
+      const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/queue`, {
         timeout: 5000
       });
       
@@ -64,25 +64,25 @@ router.get('/diagnostic', authenticateToken, async (req, res) => {
         const testCardId = approvedResponse.data.cards[0].id;
         
         try {
-          const imageResponse = await axios.get(`${CAPTURE_APP_URL}/api/idcard/${testCardId}`, {
-            responseType: 'arraybuffer',
+          const imageResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/output-svg?cardId=${encodeURIComponent(testCardId)}`, {
+            responseType: 'text',
             timeout: 5000
           });
           
           diagnostics.tests.cardImageEndpoint = {
             status: 'success',
-            message: 'Card image endpoint is working',
+            message: 'Card SVG output endpoint is working',
             testedCardId: testCardId,
-            imageSize: imageResponse.data.byteLength,
-            endpoint: `/api/idcard/${testCardId}`
+            svgLength: String(imageResponse.data || '').length,
+            endpoint: `/api/printing/output-svg?cardId=${testCardId}`
           };
         } catch (imgError) {
           diagnostics.tests.cardImageEndpoint = {
             status: 'failed',
-            message: `Card image endpoint failed: ${imgError.message}`,
+            message: `Card SVG endpoint failed: ${imgError.message}`,
             testedCardId: testCardId,
-            endpoint: `/api/idcard/${testCardId}`,
-            suggestion: 'The card may not have a generated PNG image yet'
+            endpoint: `/api/printing/output-svg?cardId=${testCardId}`,
+            suggestion: 'The card may not have a generated SVG output yet'
           };
         }
       } else {
