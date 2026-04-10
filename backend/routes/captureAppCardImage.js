@@ -8,6 +8,52 @@ const CAPTURE_APP_URL = process.env.CAPTURE_APP_URL || 'http://localhost:5001';
 // Path to capture app's output directory (adjust this path as needed)
 const CAPTURE_APP_OUTPUT_DIR = process.env.CAPTURE_APP_OUTPUT_DIR || path.join(__dirname, '../../capture-app/backend/printing/output');
 
+const buildIdCandidates = (requestedId, approvedCard) => {
+  const candidates = [requestedId];
+
+  if (approvedCard && typeof approvedCard === 'object') {
+    const possibleKeys = [
+      'id',
+      'user_id',
+      'userId',
+      'student_id',
+      'studentId',
+      'capture_id',
+      'captureId',
+      'card_id',
+      'cardId',
+      'matric_no',
+      'staff_id'
+    ];
+
+    for (const key of possibleKeys) {
+      const value = approvedCard[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        candidates.push(String(value).trim());
+      }
+    }
+  }
+
+  return [...new Set(candidates.map((value) => String(value).trim()).filter(Boolean))];
+};
+
+const fetchImageFromCaptureApp = async (idCandidate) => {
+  const imageUrl = `${CAPTURE_APP_URL}/api/idcard/${encodeURIComponent(idCandidate)}`;
+  console.log(`Fetching from official endpoint: ${imageUrl}`);
+
+  const imageResponse = await axios.get(imageUrl, {
+    responseType: 'arraybuffer',
+    timeout: 10000,
+    validateStatus: (status) => status === 200
+  });
+
+  if (imageResponse.data && imageResponse.data.byteLength > 0) {
+    return Buffer.from(imageResponse.data);
+  }
+
+  return null;
+};
+
 // Get card image - uses capture app's direct PNG endpoint
 router.get('/:cardId/image', async (req, res) => {
   try {
@@ -19,32 +65,16 @@ router.get('/:cardId/image', async (req, res) => {
     
     // Method 1: Use the official /api/idcard/:userId endpoint (RECOMMENDED)
     try {
-      const imageUrl = `${CAPTURE_APP_URL}/api/idcard/${cardId}`;
-      console.log(`Fetching from official endpoint: ${imageUrl}`);
-      
-      const imageResponse = await axios.get(imageUrl, {
-        responseType: 'arraybuffer',
-        timeout: 10000,
-        validateStatus: (status) => status === 200
-      });
-      
-      if (imageResponse.data && imageResponse.data.byteLength > 0) {
-        console.log(`✅ Successfully fetched card image (${imageResponse.data.byteLength} bytes)`);
+      const directImage = await fetchImageFromCaptureApp(cardId);
+      if (directImage) {
+        console.log(`✅ Successfully fetched card image with direct ID (${directImage.byteLength} bytes)`);
         res.set('Content-Type', 'image/png');
-        res.set('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-        return res.send(Buffer.from(imageResponse.data));
+        res.set('Cache-Control', 'public, max-age=3600');
+        return res.send(directImage);
       }
     } catch (error) {
       console.error(`❌ Official endpoint failed: ${error.message}`);
-      
-      // If it's a 404, the card doesn't exist
-      if (error.response && error.response.status === 404) {
-        return res.status(404).json({
-          success: false,
-          message: `Card with ID ${cardId} not found in capture app. The card may not be approved yet.`
-        });
-      }
-      
+
       // If capture app is offline
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({
@@ -52,15 +82,56 @@ router.get('/:cardId/image', async (req, res) => {
           message: 'Capture app is not available. Please ensure it is running on port 5001.'
         });
       }
-      
+
       // Other errors - try fallback methods
       console.log('Trying fallback methods...');
+    }
+
+    // Method 1b: Resolve identifier mismatch via approved cards list
+    try {
+      const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
+        timeout: 10000
+      });
+
+      const approvedCards = approvedResponse.data?.cards || [];
+      const matchedCard = approvedCards.find((card) =>
+        String(card.id) === String(cardId) ||
+        String(card.card_id || '') === String(cardId) ||
+        String(card.user_id || '') === String(cardId) ||
+        String(card.userId || '') === String(cardId)
+      );
+
+      if (matchedCard) {
+        const idCandidates = buildIdCandidates(cardId, matchedCard);
+        console.log(`Resolved ID candidates for ${cardId}:`, idCandidates);
+
+        for (const candidate of idCandidates) {
+          try {
+            const candidateImage = await fetchImageFromCaptureApp(candidate);
+            if (candidateImage) {
+              console.log(`✅ Successfully fetched card image with candidate ID: ${candidate}`);
+              res.set('Content-Type', 'image/png');
+              res.set('Cache-Control', 'public, max-age=3600');
+              return res.send(candidateImage);
+            }
+          } catch (candidateError) {
+            if (candidateError.code === 'ECONNREFUSED' || candidateError.code === 'ETIMEDOUT') {
+              return res.status(503).json({
+                success: false,
+                message: 'Capture app is not available. Please ensure it is running on port 5001.'
+              });
+            }
+          }
+        }
+      }
+    } catch (lookupError) {
+      console.log(`Approved-card lookup failed while resolving ID ${cardId}: ${lookupError.message}`);
     }
     
     // Method 2: Try alternative endpoints (fallback)
     const fallbackEndpoints = [
-      `/api/printing/card-image/${cardId}`,
-      `/output/card_${cardId}.png`
+        `/api/printing/card-image/${encodeURIComponent(cardId)}`,
+        `/output/card_${encodeURIComponent(cardId)}.png`
     ];
     
     for (const endpoint of fallbackEndpoints) {
