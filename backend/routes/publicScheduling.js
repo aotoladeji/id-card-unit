@@ -243,6 +243,15 @@ router.post('/book', async (req, res) => {
       return res.status(400).json({ message: 'Invalid booking identifiers provided' });
     }
 
+    if (error.code === '23502') {
+      return res.status(500).json({
+        message: 'Error booking appointment',
+        code: error.code,
+        column: error.column || null,
+        detail: error.detail || null
+      });
+    }
+
     res.status(500).json({
       message: 'Error booking appointment',
       code: error.code || 'UNKNOWN_ERROR'

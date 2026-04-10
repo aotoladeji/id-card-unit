@@ -96,3 +96,30 @@ ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS important_message TEXT;
 
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE appointments ALTER COLUMN status SET DEFAULT 'scheduled';
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- Normalize legacy appointments tables: drop NOT NULL on unexpected columns
+DO $$
+DECLARE
+    col record;
+BEGIN
+    FOR col IN
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+            AND table_name = 'appointments'
+            AND is_nullable = 'NO'
+            AND column_name NOT IN (
+                'id',
+                'config_id',
+                'student_id',
+                'slot_id',
+                'appointment_date',
+                'appointment_time'
+            )
+    LOOP
+        EXECUTE format('ALTER TABLE appointments ALTER COLUMN %I DROP NOT NULL', col.column_name);
+    END LOOP;
+END $$;
