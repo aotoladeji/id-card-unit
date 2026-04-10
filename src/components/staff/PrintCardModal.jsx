@@ -45,7 +45,7 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
 
   const printWithBrowser = async () => {
     try {
-      console.log('Fetching card from capture app via backend proxy...');
+      console.log('🖨️ Fetching card from capture app via backend proxy...');
       // Fetch the generated card image through our backend proxy (avoids CORS)
       const response = await fetch(`/api/card-images/${card.card_id}/image`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
@@ -57,8 +57,18 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
       }
 
       const blob = await response.blob();
+      console.log('✅ Card fetched successfully');
+      console.log('   Size:', blob.size, 'bytes');
+      console.log('   Type:', blob.type);
+      
+      if (blob.size === 0) {
+        console.error('❌ Image blob is empty!');
+        throw new Error('Image blob is empty - check if card ID is valid');
+      }
+
       const imageUrl = URL.createObjectURL(blob);
-      console.log('Card fetched, opening print window...');
+      console.log('✅ Blob URL created:', imageUrl);
+      console.log('📖 Opening print window...');
 
       // Open print window with the generated card
       const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -104,6 +114,7 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
               margin-bottom: 20px;
               border: 2px solid #ddd;
               border-radius: 4px;
+              background: #fff;
             }
             .print-message {
               background: #2196F3;
@@ -127,27 +138,65 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
               margin-top: 10px;
               text-align: center;
             }
+            .error {
+              color: #d32f2f;
+              font-size: 14px;
+              margin-top: 10px;
+              padding: 10px;
+              background: #ffebee;
+              border-radius: 4px;
+              display: none;
+            }
           </style>
         </head>
         <body>
           <div class="preview-container">
             <div class="print-message">📋 Review the card below</div>
-            <img src="${imageUrl}" alt="ID Card" />
+            <img src="${imageUrl}" alt="ID Card" id="cardImage" />
+            <div class="error" id="error"></div>
             <div class="countdown">
               ⏳ Print dialog will open in <span id="countdown">5</span> seconds...
             </div>
           </div>
           <script>
-            let count = 5;
+            const img = document.getElementById('cardImage');
+            const errorDiv = document.getElementById('error');
             const countdownEl = document.getElementById('countdown');
-            const timer = setInterval(() => {
-              count--;
-              countdownEl.textContent = count;
-              if (count <= 0) {
-                clearInterval(timer);
-                window.print();
+            let count = 5;
+            let printStarted = false;
+
+            img.onerror = function() {
+              errorDiv.style.display = 'block';
+              errorDiv.textContent = '❌ Image failed to load. URL may have expired.';
+              console.error('Image failed to load from:', img.src);
+            };
+
+            img.onload = function() {
+              console.log('Image loaded successfully');
+              if (!printStarted) {
+                startCountdown();
               }
-            }, 1000);
+            };
+
+            function startCountdown() {
+              printStarted = true;
+              const timer = setInterval(() => {
+                count--;
+                countdownEl.textContent = count;
+                if (count <= 0) {
+                  clearInterval(timer);
+                  window.print();
+                }
+              }, 1000);
+            }
+
+            // Fallback: start countdown after 2 seconds even if image doesn't load
+            setTimeout(() => {
+              if (!printStarted) {
+                console.warn('Image took too long to load, starting countdown anyway');
+                startCountdown();
+              }
+            }, 2000);
           </script>
         </body>
         </html>
