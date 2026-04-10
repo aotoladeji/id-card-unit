@@ -287,32 +287,87 @@ export default function PrintQueue() {
             }
             body {
               margin: 0;
-              padding: 0;
+              padding: 20px;
               display: flex;
+              flex-direction: column;
               justify-content: center;
+              align-items: center;
+              background: #f5f5f5;
+              font-family: Arial, sans-serif;
+            }
+            .preview-container {
+              background: white;
+              padding: 20px;
+              border-radius: 8px;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+              display: flex;
+              flex-direction: column;
               align-items: center;
             }
             img {
               width: 85.6mm;
               height: 53.98mm;
               object-fit: contain;
+              margin-bottom: 20px;
+              border: 2px solid #ddd;
+              border-radius: 4px;
+            }
+            .print-message {
+              background: #2196F3;
+              color: white;
+              padding: 15px 20px;
+              border-radius: 4px;
+              font-size: 16px;
+              font-weight: bold;
+              text-align: center;
+              width: 100%;
+              max-width: 400px;
+              animation: pulse 1.5s ease-in-out infinite;
+            }
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.8; }
+            }
+            .countdown {
+              color: #666;
+              font-size: 14px;
+              margin-top: 10px;
+              text-align: center;
             }
           </style>
         </head>
         <body>
-          <img src="${imageUrl}" alt="ID Card" onload="window.print();" />
+          <div class="preview-container">
+            <div class="print-message">📋 Review the card below</div>
+            <img src="${imageUrl}" alt="ID Card" />
+            <div class="countdown">
+              ⏳ Print dialog will open in <span id="countdown">5</span> seconds...
+            </div>
+          </div>
+          <script>
+            let count = 5;
+            const countdownEl = document.getElementById('countdown');
+            const timer = setInterval(() => {
+              count--;
+              countdownEl.textContent = count;
+              if (count <= 0) {
+                clearInterval(timer);
+                window.print();
+              }
+            }, 1000);
+          </script>
         </body>
         </html>
       `);
       printWindow.document.close();
 
-      // Wait for print dialog to close
+      // Wait for print dialog and user action (extended time)
       await new Promise((resolve) => {
         setTimeout(() => {
           printWindow.close();
           URL.revokeObjectURL(imageUrl);
           resolve();
-        }, 1000);
+        }, 8000);
       });
 
       // Mark as printed in both systems
