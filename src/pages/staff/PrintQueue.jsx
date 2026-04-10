@@ -274,13 +274,17 @@ export default function PrintQueue() {
         throw new Error('Image blob is empty - check if card ID is valid');
       }
 
-      const imageUrl = URL.createObjectURL(blob);
-      console.log('✅ Blob URL created:', imageUrl);
+      const imageUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to convert image to data URL'));
+        reader.readAsDataURL(blob);
+      });
+      console.log('✅ Data URL created for print preview');
 
       // Open print window with the generated card
       const printWindow = window.open('', '_blank', 'width=800,height=600');
       if (!printWindow) {
-        URL.revokeObjectURL(imageUrl);
         throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
       }
 
@@ -413,7 +417,6 @@ export default function PrintQueue() {
       await new Promise((resolve) => {
         setTimeout(() => {
           printWindow.close();
-          URL.revokeObjectURL(imageUrl);
           resolve();
         }, 8000);
       });

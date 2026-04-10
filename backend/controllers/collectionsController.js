@@ -119,35 +119,21 @@ const verifyAndCollect = async (req, res) => {
       });
     }
 
-    // Call capture app to verify fingerprint, forwarding the scanned fingerprint image
+    // Verify against capture app (which reads from shared database)
     const { scannedFingerprint } = req.body;
     const verification = await verifyFingerprint(collection.card_id, scannedFingerprint);
 
-    // Handle configuration issues (environment variable not set)
-    if (verification.configIssue) {
-      console.error('[Collection] Fingerprint verification config issue:', verification.diagnostic);
+    // Handle connectivity/config issues
+    if (verification.configIssue || verification.connectionError || verification.timeoutError) {
       return res.status(503).json({
         success: false,
         verified: false,
         message: verification.message,
-        code: 'CONFIG_ERROR',
-        diagnostic: verification.diagnostic
+        diagnostic: verification.diagnostic || verification.appError || null
       });
     }
 
-    // Handle connection errors (capture app unreachable)
-    if (verification.connectionError || verification.timeoutError) {
-      console.error('[Collection] Fingerprint capture app connection issue:', verification.message);
-      return res.status(503).json({
-        success: false,
-        verified: false,
-        message: verification.message,
-        code: verification.connectionError ? 'CONNECTION_ERROR' : 'TIMEOUT_ERROR',
-        diagnostic: verification.diagnostic || { url: verification.message }
-      });
-    }
-
-    // Handle fingerprint mismatch (verification failed, but system operational)
+    // Handle fingerprint mismatch
     if (!verification.matched) {
       console.warn(`[Collection] Fingerprint mismatch for card ${collection.card_id}`);
       return res.status(400).json({

@@ -220,7 +220,11 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64) => {
     
     const response = await axios.post(
       `${CAPTURE_APP_URL}/api/verify/fingerprint`,
-      { cardId, scannedFingerprint: scannedFingerprintBase64 || null },
+      {
+        cardId,
+        fingerprintData: scannedFingerprintBase64 || null,
+        scannedFingerprint: scannedFingerprintBase64 || null
+      },
       {
         timeout: 15000,
         headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
