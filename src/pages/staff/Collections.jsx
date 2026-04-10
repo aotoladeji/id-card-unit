@@ -11,7 +11,49 @@ export default function Collections() {
   const [scanState, setScanState] = useState('idle'); // idle | scanning | scanned | verifying
   const [scannedImage, setScannedImage] = useState(null);
   const [scanPayload, setScanPayload] = useState(null);
+  const [scannedTemplate, setScannedTemplate] = useState(null);
   const [lastScanSignature, setLastScanSignature] = useState(null);
+
+  const pickScannerTemplate = (payload) => {
+    if (!payload || typeof payload !== 'object') return null;
+
+    // Prefer explicit template-like fields if present.
+    const priorityKeys = [
+      'fingerprintData',
+      'fingerprintTemplate',
+      'template',
+      'Template',
+      'ISOFMR',
+      'isoTemplate',
+      'AnsiTemplate',
+      'WSQ',
+      'Base64Template'
+    ];
+
+    for (const key of priorityKeys) {
+      const value = payload[key];
+      if (typeof value === 'string' && value.trim().length > 20) {
+        return value.trim();
+      }
+    }
+
+    // Fallback: detect likely template fields by key name.
+    for (const [key, value] of Object.entries(payload)) {
+      if (typeof value !== 'string' || value.trim().length <= 20) continue;
+      const k = key.toLowerCase();
+      if (
+        k.includes('template') ||
+        k.includes('finger') ||
+        k.includes('iso') ||
+        k.includes('wsq') ||
+        k.includes('minutiae')
+      ) {
+        return value.trim();
+      }
+    }
+
+    return null;
+  };
 
   useEffect(() => {
     fetchCollections();
@@ -65,6 +107,10 @@ export default function Collections() {
     setFingerprintModal({ id, name });
     setScanState('idle');
     setScannedImage(null);
+    // Auto-start scanner immediately when user clicks "Verify Fingerprint".
+    setTimeout(() => {
+      handleScan();
+    }, 50);
   };
 
   const closeFingerprintModal = () => {
@@ -72,6 +118,7 @@ export default function Collections() {
     setScanState('idle');
     setScannedImage(null);
     setScanPayload(null);
+    setScannedTemplate(null);
   };
 
   // Step 1 — trigger the Windows fingerprint scanner service
@@ -99,6 +146,8 @@ export default function Collections() {
 
       // Keep full scanner payload so backend can use any template fields available.
       setScanPayload(data);
+      const templateValue = pickScannerTemplate(data);
+      setScannedTemplate(templateValue);
 
       if (!data.FigPicBase64) {
         showNotification('No fingerprint captured. Please try again.', 'error');
@@ -130,7 +179,8 @@ export default function Collections() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          scannedFingerprint: scannedImage,
+          scannedFingerprint: scannedTemplate || scannedImage,
+          scannedFingerprintImage: scannedImage,
           scanPayload
         })
       });
@@ -337,7 +387,7 @@ export default function Collections() {
               <>
                 <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>👆</div>
                 <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-                  Ask the card owner to place their finger on the scanner, then click <strong>Scan Fingerprint</strong>.
+                  Scanner starts automatically. Ask the card owner to place their finger on the scanner now.
                 </p>
                 <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                   <button className="btn btn-secondary" onClick={closeFingerprintModal}>Cancel</button>

@@ -37,32 +37,52 @@ const extractScannedTemplateCandidates = (scanPayload = {}) => {
   return [...new Set(templates)];
 };
 
+const extractImageCandidates = (scanPayload = {}) => {
+  if (!scanPayload || typeof scanPayload !== 'object') return [];
+  const keys = ['FigPicBase64', 'figPicBase64', 'image', 'fingerImage'];
+  const images = keys
+    .map((key) => normalizeFingerprint(scanPayload[key]))
+    .filter(Boolean);
+  return [...new Set(images)];
+};
+
 const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates = []) => {
   const ids = [...new Set(identityCandidates.filter(Boolean).map((v) => String(v).trim()))];
   const scans = [...new Set(scanCandidates.filter(Boolean).map((v) => String(v).trim()))];
 
   for (const idValue of ids) {
     for (const scanValue of scans) {
-      const response = await axios.post(
-        `${CAPTURE_APP_URL}/api/verify/fingerprint`,
-        {
-          cardId: idValue,
-          fingerprintData: scanValue,
-          scannedFingerprint: scanValue
-        },
-        {
-          timeout: 15000,
-          headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
-        }
-      );
+      try {
+        // Skip obviously invalid payloads to avoid noisy 400s from matcher endpoint.
+        if (!scanValue || scanValue.length < 16) continue;
 
-      if (response.data?.matched) {
-        return {
-          success: true,
-          matched: true,
-          studentName: response.data.studentName || null,
-          message: response.data.message || 'Verification complete'
-        };
+        const response = await axios.post(
+          `${CAPTURE_APP_URL}/api/verify/fingerprint`,
+          {
+            cardId: idValue,
+            fingerprintData: scanValue,
+            scannedFingerprint: scanValue
+          },
+          {
+            timeout: 15000,
+            headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
+          }
+        );
+
+        if (response.data?.matched) {
+          return {
+            success: true,
+            matched: true,
+            studentName: response.data.studentName || null,
+            message: response.data.message || 'Verification complete'
+          };
+        }
+      } catch (error) {
+        // Continue trying other candidate pairs for non-fatal matcher errors.
+        if (error.response && [400, 404].includes(error.response.status)) {
+          continue;
+        }
+        throw error;
       }
     }
   }
@@ -418,51 +438,28 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
       };
     }
 
-    const fingerprints = payload.fingerprints || payload;
-    const templates = [
-      fingerprints.left_thumb,
-      fingerprints.left_index,
-      fingerprints.right_thumb,
-      fingerprints.right_index
-    ]
-      .map(normalizeFingerprint)
-      .filter(Boolean);
-
+    // Capture app matcher is the source of truth.
+    // Try multiple scan candidates from scanner payload + image preview.
+    const scanImage = normalizeFingerprint(options.scannedFingerprintImage);
     const scannedTemplates = extractScannedTemplateCandidates(scanPayload);
-    const matchedByTemplate = templates.includes(scanned) ||
-      scannedTemplates.some((candidate) => templates.includes(candidate));
-
-    if (matchedByTemplate) {
-      return {
-        success: true,
-        matched: true,
-        studentName:
-          payload.studentName ||
-          payload.full_name ||
-          [payload.surname, payload.other_names].filter(Boolean).join(' ').trim() ||
-          null,
-        message: 'Fingerprint matched'
-      };
-    }
-
-    // If template compare fails (common when scanner returns image-only payload),
-    // delegate to capture app matcher endpoint.
+    const imageCandidates = extractImageCandidates(scanPayload);
     const matcherScanCandidates = [
       ...scannedTemplates,
+      ...imageCandidates,
+      scanImage,
       scanned
     ];
+
     const matcherResult = await verifyWithCaptureMatcher(
       [matchedIdentity, ...identityCandidates],
       matcherScanCandidates
     );
-    if (matcherResult.success) {
-      return matcherResult;
-    }
 
     return {
       success: true,
-      matched: false,
+      matched: matcherResult.matched,
       studentName:
+        matcherResult.studentName ||
         payload.studentName ||
         payload.full_name ||
         [payload.surname, payload.other_names].filter(Boolean).join(' ').trim() ||

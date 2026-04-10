@@ -121,7 +121,7 @@ const verifyAndCollect = async (req, res) => {
 
     // Verify against capture app (which reads from shared database)
     const body = req.body || {};
-    const { scannedFingerprint, scanPayload } = body;
+    const { scannedFingerprint, scannedFingerprintImage, scanPayload } = body;
 
     if (!scannedFingerprint || typeof scannedFingerprint !== 'string') {
       return res.status(400).json({
@@ -140,7 +140,8 @@ const verifyAndCollect = async (req, res) => {
           collection.card_number,
           collection.matric_no,
           collection.staff_id
-        ]
+        ],
+        scannedFingerprintImage
       }
     );
 
