@@ -190,7 +190,34 @@ const notifyCardCollected = async (cardId) => {
  * Only one finger needs to match
  */
 const verifyFingerprint = async (cardId, scannedFingerprintBase64) => {
+  // Validate inputs
+  if (!cardId) {
+    console.error('[Fingerprint] Card ID is required for verification');
+    return {
+      success: false,
+      matched: false,
+      message: 'Card ID is required for fingerprint verification'
+    };
+  }
+
+  // Check if CAPTURE_APP_URL is properly configured for production
+  if (!process.env.CAPTURE_APP_URL || process.env.CAPTURE_APP_URL === 'http://localhost:5001') {
+    console.error('[Fingerprint] ⚠️  CAPTURE_APP_URL not configured for production. Current value:', CAPTURE_APP_URL);
+    return {
+      success: false,
+      matched: false,
+      message: 'Fingerprint verification is not available in this environment. Please configure CAPTURE_APP_URL.',
+      configIssue: true,
+      diagnostic: {
+        captureAppUrl: CAPTURE_APP_URL,
+        instruction: 'Set CAPTURE_APP_URL environment variable to production capture app endpoint'
+      }
+    };
+  }
+
   try {
+    console.log(`[Fingerprint] Verifying card ${cardId} against capture app at ${CAPTURE_APP_URL}`);
+    
     const response = await axios.post(
       `${CAPTURE_APP_URL}/api/verify/fingerprint`,
       { cardId, scannedFingerprint: scannedFingerprintBase64 || null },
@@ -199,6 +226,12 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64) => {
         headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
       }
     );
+    
+    console.log(`[Fingerprint] ✅ Capture app response for card ${cardId}:`, {
+      matched: response.data.matched,
+      message: response.data.message
+    });
+    
     return {
       success: response.data.success || false,
       matched: response.data.matched || false,
@@ -206,17 +239,48 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64) => {
       message: response.data.message || 'Verification complete'
     };
   } catch (error) {
-    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      return { success: false, matched: false, message: 'Capture app is not available' };
-    }
-    if (error.response) {
+    if (error.code === 'ECONNREFUSED') {
+      console.error(`[Fingerprint] ❌ Connection refused at ${CAPTURE_APP_URL}. Capture app may not be running.`);
       return {
         success: false,
         matched: false,
-        message: error.response.data?.message || 'Fingerprint verification failed'
+        message: `Cannot reach capture app at ${CAPTURE_APP_URL}. Fingerprint verification unavailable.`,
+        connectionError: true,
+        diagnostic: {
+          error: 'ECONNREFUSED',
+          url: CAPTURE_APP_URL,
+          hint: 'Ensure capture app is running and CAPTURE_APP_URL is correct'
+        }
       };
     }
-    return { success: false, matched: false, message: error.message };
+    
+    if (error.code === 'ETIMEDOUT') {
+      console.error(`[Fingerprint] ⏱️  Timeout connecting to capture app at ${CAPTURE_APP_URL}`);
+      return {
+        success: false,
+        matched: false,
+        message: `Capture app at ${CAPTURE_APP_URL} is not responding. Please try again.`,
+        timeoutError: true
+      };
+    }
+    
+    if (error.response) {
+      console.error(`[Fingerprint] ❌ Capture app returned ${error.response.status}:`, error.response.data);
+      return {
+        success: false,
+        matched: false,
+        message: error.response.data?.message || 'Fingerprint verification failed at capture app',
+        statusCode: error.response.status,
+        appError: error.response.data
+      };
+    }
+    
+    console.error('[Fingerprint] Unexpected error:', error.message);
+    return {
+      success: false,
+      matched: false,
+      message: `Verification error: ${error.message}`
+    };
   }
 };
 

@@ -25,6 +25,7 @@ const cardImageRoutes = require('./routes/captureAppCardImage');
 const cardPreviewRoutes = require('./routes/cardPreview');
 const approvedCardsRoutes = require('./routes/approvedCards');
 const migrationRoutes = require('./routes/admin/migration');
+const diagnosticRoutes = require('./routes/diagnostic');
 
 // Import database connection
 const pool = require('./config/database');
@@ -123,6 +124,7 @@ app.use('/api/print-queue', printQueueRoutes);
 app.use('/api/print-history', printHistoryRoutes);
 app.use('/api/collections', collectionsRoutes);
 app.use('/api/admin/migration', migrationRoutes);
+app.use('/api/diagnostic', diagnosticRoutes);
 
 // Liveness endpoint (no DB access)
 app.get('/api/ping', (req, res) => {

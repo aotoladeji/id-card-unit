@@ -104,24 +104,56 @@ const verifyAndCollect = async (req, res) => {
     );
 
     if (collectionResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Collection record not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Collection record not found' 
+      });
     }
 
     const collection = collectionResult.rows[0];
 
     if (collection.status === 'collected') {
-      return res.status(400).json({ message: 'Card has already been collected' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Card has already been collected' 
+      });
     }
 
     // Call capture app to verify fingerprint, forwarding the scanned fingerprint image
     const { scannedFingerprint } = req.body;
     const verification = await verifyFingerprint(collection.card_id, scannedFingerprint);
 
+    // Handle configuration issues (environment variable not set)
+    if (verification.configIssue) {
+      console.error('[Collection] Fingerprint verification config issue:', verification.diagnostic);
+      return res.status(503).json({
+        success: false,
+        verified: false,
+        message: verification.message,
+        code: 'CONFIG_ERROR',
+        diagnostic: verification.diagnostic
+      });
+    }
+
+    // Handle connection errors (capture app unreachable)
+    if (verification.connectionError || verification.timeoutError) {
+      console.error('[Collection] Fingerprint capture app connection issue:', verification.message);
+      return res.status(503).json({
+        success: false,
+        verified: false,
+        message: verification.message,
+        code: verification.connectionError ? 'CONNECTION_ERROR' : 'TIMEOUT_ERROR',
+        diagnostic: verification.diagnostic || { url: verification.message }
+      });
+    }
+
+    // Handle fingerprint mismatch (verification failed, but system operational)
     if (!verification.matched) {
+      console.warn(`[Collection] Fingerprint mismatch for card ${collection.card_id}`);
       return res.status(400).json({
         success: false,
-        message: verification.message || 'Fingerprint did not match. Please try again.',
-        verified: false
+        verified: false,
+        message: verification.message || 'Fingerprint did not match. Please try again.'
       });
     }
 
