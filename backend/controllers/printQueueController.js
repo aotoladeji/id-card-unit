@@ -1,5 +1,10 @@
 const pool = require('../config/database');
-const { syncApprovedCards, notifyCardPrinted } = require('../services/captureAppIntegration');
+const {
+  syncApprovedCards,
+  notifyCardPrinted,
+  ensureQueueExclusionsTable,
+  excludeCardFromQueue
+} = require('../services/captureAppIntegration');
 
 // Sync approved cards from capture app
 const syncCards = async (req, res) => {
@@ -7,10 +12,10 @@ const syncCards = async (req, res) => {
     const result = await syncApprovedCards();
     
     // Only log if cards were actually synced
-    if (result.added > 0) {
+    if ((result.addedToQueue || 0) > 0) {
       await pool.query(
         'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
-        [req.user.id, 'CARDS_SYNCED', `Synced ${result.added} new cards to print queue`]
+        [req.user.id, 'CARDS_SYNCED', `Synced ${result.addedToQueue} new cards to print queue`]
       );
     }
 
@@ -90,6 +95,8 @@ const markAsPrinted = async (req, res) => {
     const card = cardResult.rows[0];
     console.log(`[Mark as Printed] Found card: ${card.surname} ${card.other_names} (card_id: ${card.card_id})`);
 
+    await ensureQueueExclusionsTable();
+
     // Mark as printed in queue
     await client.query(
       `UPDATE print_queue 
@@ -135,6 +142,10 @@ const markAsPrinted = async (req, res) => {
       card.card_number
     ]);
     console.log(`[Mark as Printed] Added to card_collections`);
+
+    // Add exclusion so periodic sync will not re-queue this card.
+    await excludeCardFromQueue(card.card_id, 'printed', req.user.id, client);
+    console.log(`[Mark as Printed] Added queue exclusion for card_id ${card.card_id}`);
 
     // Delete from queue (card moves to history and collection)
     await client.query('DELETE FROM print_queue WHERE id = $1', [id]);
@@ -308,11 +319,22 @@ const printDirect = async (req, res) => {
 const clearQueue = async (req, res) => {
   try {
     console.log('[Clear Queue] Clearing all cards from print queue...');
+    await ensureQueueExclusionsTable();
     
     // Get count before clearing
     const countResult = await pool.query('SELECT COUNT(*) FROM print_queue');
     const count = parseInt(countResult.rows[0].count);
     
+    // Persist exclusions so sync won't immediately repopulate removed cards.
+    await pool.query(
+      `INSERT INTO print_queue_exclusions (card_id, reason, created_by)
+       SELECT card_id, 'removed', $1
+       FROM print_queue
+       ON CONFLICT (card_id)
+       DO UPDATE SET reason = EXCLUDED.reason, created_by = EXCLUDED.created_by, created_at = CURRENT_TIMESTAMP`,
+      [req.user.id]
+    );
+
     // Clear the queue
     await pool.query('DELETE FROM print_queue');
     
@@ -344,6 +366,7 @@ const deleteCard = async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`[Delete Card] Removing card ID ${id} from print queue...`);
+    await ensureQueueExclusionsTable();
     
     // Get card details before deleting
     const cardResult = await pool.query(
@@ -359,6 +382,9 @@ const deleteCard = async (req, res) => {
     }
 
     const card = cardResult.rows[0];
+
+    // Add exclusion so sync won't immediately add this card back.
+    await excludeCardFromQueue(card.card_id, 'removed', req.user.id);
     
     // Delete the card
     await pool.query('DELETE FROM print_queue WHERE id = $1', [id]);

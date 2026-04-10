@@ -435,24 +435,16 @@ export default function PrintQueue() {
       });
 
       if (!markResponse.ok) {
-        console.warn('Failed to mark card as printed in local database');
+        let backendMessage = 'Failed to mark card as printed in local database';
+        try {
+          const errorData = await markResponse.json();
+          backendMessage = errorData.message || backendMessage;
+        } catch (e) {
+          backendMessage = `Failed to mark card as printed (status ${markResponse.status})`;
+        }
+        throw new Error(backendMessage);
       } else {
         console.log('✅ Card marked as printed in local database');
-      }
-
-      // Also mark as printed in capture app (according to API guide)
-      try {
-        const captureAppResponse = await fetch(`http://localhost:5001/api/printing/mark-printed/${card.card_id}`, {
-          method: 'POST'
-        });
-        
-        if (captureAppResponse.ok) {
-          console.log('✅ Card marked as printed in capture app');
-        } else {
-          console.warn('Failed to mark card as printed in capture app');
-        }
-      } catch (err) {
-        console.warn('Could not update capture app status:', err.message);
       }
 
       // Small delay to ensure backend transaction completes

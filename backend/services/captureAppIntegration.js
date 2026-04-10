@@ -4,12 +4,38 @@ const pool = require('../config/database');
 // URL of the capture app API
 const CAPTURE_APP_URL = process.env.CAPTURE_APP_URL || 'http://localhost:5001';
 
+const ensureQueueExclusionsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS print_queue_exclusions (
+      id SERIAL PRIMARY KEY,
+      card_id INTEGER NOT NULL UNIQUE,
+      reason VARCHAR(50) NOT NULL,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+};
+
+const excludeCardFromQueue = async (cardId, reason = 'removed', userId = null, dbClient = null) => {
+  const executor = dbClient || pool;
+
+  await executor.query(
+    `INSERT INTO print_queue_exclusions (card_id, reason, created_by)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (card_id)
+     DO UPDATE SET reason = EXCLUDED.reason, created_by = EXCLUDED.created_by, created_at = CURRENT_TIMESTAMP`,
+    [cardId, reason, userId]
+  );
+};
+
 /**
  * Fetch approved cards from capture app and save to approved_cards history table
  * Also add new cards to print queue
  */
 const syncApprovedCards = async () => {
   try {
+    await ensureQueueExclusionsTable();
+
     console.log('========================================');
     console.log('🔄 Syncing approved cards from capture app...');
     console.log('Capture app URL:', CAPTURE_APP_URL);
@@ -78,7 +104,42 @@ const syncApprovedCards = async () => {
           console.log(`  ℹ️  Already in approved_cards history`);
         }
         
-        // 2. Check if already in print queue
+        // 2. Skip cards explicitly excluded from queue (printed/removed locally)
+        const exclusionCheck = await pool.query(
+          'SELECT id, reason FROM print_queue_exclusions WHERE card_id = $1',
+          [card.id]
+        );
+
+        if (exclusionCheck.rows.length > 0) {
+          console.log(`  ⏭️  Excluded from queue (reason: ${exclusionCheck.rows[0].reason})`);
+          skipped++;
+          continue;
+        }
+
+        // 3. Skip cards that are already in collections/history (already printed flow)
+        const collectionCheck = await pool.query(
+          'SELECT id FROM card_collections WHERE card_id = $1 LIMIT 1',
+          [card.id]
+        );
+
+        if (collectionCheck.rows.length > 0) {
+          console.log('  ⏭️  Already in collection workflow, skipping queue insert');
+          skipped++;
+          continue;
+        }
+
+        const historyPrintCheck = await pool.query(
+          'SELECT id FROM print_history WHERE card_id = $1 LIMIT 1',
+          [card.id]
+        );
+
+        if (historyPrintCheck.rows.length > 0) {
+          console.log('  ⏭️  Already in print history, skipping queue insert');
+          skipped++;
+          continue;
+        }
+
+        // 4. Check if already in print queue
         const queueCheck = await pool.query(
           'SELECT id FROM print_queue WHERE card_id = $1',
           [card.id]
@@ -90,7 +151,7 @@ const syncApprovedCards = async () => {
           continue;
         }
 
-        // 3. Add to print queue for printing
+        // 5. Add to print queue for printing
         console.log(`  ➕ Adding to print queue...`);
         const result = await pool.query(`
           INSERT INTO print_queue 
@@ -292,5 +353,7 @@ module.exports = {
   syncApprovedCards,
   notifyCardPrinted,
   notifyCardCollected,
-  verifyFingerprint
+  verifyFingerprint,
+  ensureQueueExclusionsTable,
+  excludeCardFromQueue
 };
