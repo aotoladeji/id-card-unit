@@ -131,7 +131,18 @@ const verifyAndCollect = async (req, res) => {
       });
     }
 
-    const verification = await verifyFingerprint(collection.card_id, scannedFingerprint, scanPayload);
+    const verification = await verifyFingerprint(
+      collection.card_id,
+      scannedFingerprint,
+      scanPayload,
+      {
+        identityCandidates: [
+          collection.card_number,
+          collection.matric_no,
+          collection.staff_id
+        ]
+      }
+    );
 
     // Handle connectivity/config issues
     if (verification.configIssue || verification.connectionError || verification.timeoutError) {
@@ -146,7 +157,7 @@ const verifyAndCollect = async (req, res) => {
     // Handle fingerprint mismatch
     if (!verification.matched) {
       console.warn(`[Collection] Fingerprint mismatch for card ${collection.card_id}`);
-      return res.status(400).json({
+      return res.json({
         success: false,
         verified: false,
         message: verification.message || 'Fingerprint did not match. Please try again.'

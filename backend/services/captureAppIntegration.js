@@ -37,25 +37,41 @@ const extractScannedTemplateCandidates = (scanPayload = {}) => {
   return [...new Set(templates)];
 };
 
-const verifyWithCaptureMatcher = async (cardId, scannedFingerprintBase64) => {
-  const response = await axios.post(
-    `${CAPTURE_APP_URL}/api/verify/fingerprint`,
-    {
-      cardId,
-      fingerprintData: scannedFingerprintBase64 || null,
-      scannedFingerprint: scannedFingerprintBase64 || null
-    },
-    {
-      timeout: 15000,
-      headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
+const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates = []) => {
+  const ids = [...new Set(identityCandidates.filter(Boolean).map((v) => String(v).trim()))];
+  const scans = [...new Set(scanCandidates.filter(Boolean).map((v) => String(v).trim()))];
+
+  for (const idValue of ids) {
+    for (const scanValue of scans) {
+      const response = await axios.post(
+        `${CAPTURE_APP_URL}/api/verify/fingerprint`,
+        {
+          cardId: idValue,
+          fingerprintData: scanValue,
+          scannedFingerprint: scanValue
+        },
+        {
+          timeout: 15000,
+          headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
+        }
+      );
+
+      if (response.data?.matched) {
+        return {
+          success: true,
+          matched: true,
+          studentName: response.data.studentName || null,
+          message: response.data.message || 'Verification complete'
+        };
+      }
     }
-  );
+  }
 
   return {
-    success: response.data.success || false,
-    matched: response.data.matched || false,
-    studentName: response.data.studentName || null,
-    message: response.data.message || 'Verification complete'
+    success: true,
+    matched: false,
+    studentName: null,
+    message: 'Fingerprint did not match stored templates'
   };
 };
 
@@ -330,7 +346,7 @@ const notifyCardCollected = async (cardId) => {
  * Capture app scans the currently placed finger and compares against stored templates
  * Only one finger needs to match
  */
-const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload = null) => {
+const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload = null, options = {}) => {
   // Validate inputs
   if (!cardId) {
     console.error('[Fingerprint] Card ID is required for verification');
@@ -357,22 +373,39 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
   }
 
   try {
-    console.log(`[Fingerprint] Fetching templates for card ${cardId} from ${CAPTURE_APP_URL}`);
+    const identityCandidates = [cardId, ...(options.identityCandidates || [])]
+      .filter((value) => value !== undefined && value !== null && String(value).trim() !== '');
 
-    const response = await axios.get(
-      `${CAPTURE_APP_URL}/api/printing/fingerprint?cardId=${encodeURIComponent(cardId)}`,
-      {
-        timeout: 15000,
-        headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
+    let payload = null;
+    let matchedIdentity = null;
+    for (const candidate of identityCandidates) {
+      try {
+        console.log(`[Fingerprint] Fetching templates for candidate ${candidate} from ${CAPTURE_APP_URL}`);
+        const response = await axios.get(
+          `${CAPTURE_APP_URL}/api/printing/fingerprint?cardId=${encodeURIComponent(candidate)}`,
+          {
+            timeout: 15000,
+            headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
+          }
+        );
+
+        if (response.data?.success) {
+          payload = response.data;
+          matchedIdentity = candidate;
+          break;
+        }
+      } catch (error) {
+        if (error.response?.status !== 404) {
+          throw error;
+        }
       }
-    );
+    }
 
-    const payload = response.data || {};
-    if (!payload.success) {
+    if (!payload) {
       return {
         success: false,
         matched: false,
-        message: payload.message || 'Fingerprint record not found'
+        message: 'Fingerprint record not found for this card'
       };
     }
 
@@ -414,7 +447,14 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
 
     // If template compare fails (common when scanner returns image-only payload),
     // delegate to capture app matcher endpoint.
-    const matcherResult = await verifyWithCaptureMatcher(cardId, scannedFingerprintBase64);
+    const matcherScanCandidates = [
+      ...scannedTemplates,
+      scanned
+    ];
+    const matcherResult = await verifyWithCaptureMatcher(
+      [matchedIdentity, ...identityCandidates],
+      matcherScanCandidates
+    );
     if (matcherResult.success) {
       return matcherResult;
     }
