@@ -396,39 +396,6 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
     const identityCandidates = [cardId, ...(options.identityCandidates || [])]
       .filter((value) => value !== undefined && value !== null && String(value).trim() !== '');
 
-    let payload = null;
-    let matchedIdentity = null;
-    for (const candidate of identityCandidates) {
-      try {
-        console.log(`[Fingerprint] Fetching templates for candidate ${candidate} from ${CAPTURE_APP_URL}`);
-        const response = await axios.get(
-          `${CAPTURE_APP_URL}/api/printing/fingerprint?cardId=${encodeURIComponent(candidate)}`,
-          {
-            timeout: 15000,
-            headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
-          }
-        );
-
-        if (response.data?.success) {
-          payload = response.data;
-          matchedIdentity = candidate;
-          break;
-        }
-      } catch (error) {
-        if (error.response?.status !== 404) {
-          throw error;
-        }
-      }
-    }
-
-    if (!payload) {
-      return {
-        success: false,
-        matched: false,
-        message: 'Fingerprint record not found for this card'
-      };
-    }
-
     const scanned = normalizeFingerprint(scannedFingerprintBase64);
     if (!scanned) {
       return {
@@ -439,7 +406,7 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
     }
 
     // Capture app matcher is the source of truth.
-    // Try multiple scan candidates from scanner payload + image preview.
+    // Try multiple scan candidates from scanner payload + image preview (FigPicBase64).
     const scanImage = normalizeFingerprint(options.scannedFingerprintImage);
     const scannedTemplates = extractScannedTemplateCandidates(scanPayload);
     const imageCandidates = extractImageCandidates(scanPayload);
@@ -451,20 +418,42 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
     ];
 
     const matcherResult = await verifyWithCaptureMatcher(
-      [matchedIdentity, ...identityCandidates],
+      identityCandidates,
       matcherScanCandidates
     );
+
+    // Optional fetch for metadata after matcher attempt; do not block verification path.
+    let payload = null;
+    for (const candidate of identityCandidates) {
+      try {
+        const response = await axios.get(
+          `${CAPTURE_APP_URL}/api/printing/fingerprint?cardId=${encodeURIComponent(candidate)}`,
+          {
+            timeout: 15000,
+            headers: { 'X-Api-Key': process.env.VERIFY_API_KEY || '' }
+          }
+        );
+        if (response.data?.success) {
+          payload = response.data;
+          break;
+        }
+      } catch (error) {
+        if (error.response?.status !== 404) {
+          throw error;
+        }
+      }
+    }
 
     return {
       success: true,
       matched: matcherResult.matched,
       studentName:
         matcherResult.studentName ||
-        payload.studentName ||
-        payload.full_name ||
-        [payload.surname, payload.other_names].filter(Boolean).join(' ').trim() ||
+        payload?.studentName ||
+        payload?.full_name ||
+        [payload?.surname, payload?.other_names].filter(Boolean).join(' ').trim() ||
         null,
-      message: matcherResult.message || 'Fingerprint did not match stored templates'
+      message: matcherResult.message || (payload ? 'Fingerprint did not match stored templates' : 'Fingerprint record not found for this card')
     };
   } catch (error) {
     if (error.code === 'ECONNREFUSED') {
