@@ -8,12 +8,16 @@ CREATE TABLE IF NOT EXISTS scheduling_config (
     title VARCHAR(255) NOT NULL,
     description TEXT,
     type VARCHAR(50) NOT NULL DEFAULT 'appointment',
+    slots_per_period INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
     is_closed BOOLEAN DEFAULT FALSE,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     daily_start_time TIME NOT NULL DEFAULT '09:00:00',
     daily_end_time TIME NOT NULL DEFAULT '17:00:00',
+    exclude_weekends BOOLEAN DEFAULT TRUE,
+    location TEXT,
+    important_message TEXT,
     slots_per_day INTEGER DEFAULT 8,
     max_capacity INTEGER DEFAULT 1000,
     default_slot_capacity INTEGER DEFAULT 5,
@@ -28,12 +32,14 @@ CREATE TABLE IF NOT EXISTS scheduled_students (
     config_id INTEGER NOT NULL REFERENCES scheduling_config(id) ON DELETE CASCADE,
     full_name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
+    phone VARCHAR(50),
     jamb_number VARCHAR(50),
     pg_reg_number VARCHAR(50),
     faculty VARCHAR(255),
     department VARCHAR(255),
     level VARCHAR(50),
     login_code VARCHAR(6),
+    email_sent BOOLEAN DEFAULT FALSE,
     has_scheduled BOOLEAN DEFAULT FALSE,
     scheduled_date DATE,
     scheduled_time TIME,
@@ -81,3 +87,12 @@ CREATE INDEX IF NOT EXISTS idx_appointments_config_id ON appointments(config_id)
 CREATE INDEX IF NOT EXISTS idx_appointments_student_id ON appointments(student_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_slot_id ON appointments(slot_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(appointment_date);
+
+-- Backfill missing columns for environments where the first scheduling migration already ran
+ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS slots_per_period INTEGER DEFAULT 0;
+ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS exclude_weekends BOOLEAN DEFAULT TRUE;
+ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS important_message TEXT;
+
+ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;

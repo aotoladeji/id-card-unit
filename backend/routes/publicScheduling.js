@@ -122,6 +122,41 @@ router.post('/book', async (req, res) => {
 
     await client.query('BEGIN');
 
+    const configResult = await client.query(
+      'SELECT id, is_active, is_closed FROM scheduling_config WHERE id = $1',
+      [parsedConfigId]
+    );
+
+    if (configResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Scheduling configuration not found' });
+    }
+
+    if (!configResult.rows[0].is_active || configResult.rows[0].is_closed) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Scheduling is not available for booking' });
+    }
+
+    const studentResult = await client.query(
+      'SELECT id, config_id, has_scheduled FROM scheduled_students WHERE id = $1',
+      [parsedStudentId]
+    );
+
+    if (studentResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Student not found for this booking' });
+    }
+
+    if (studentResult.rows[0].config_id !== parsedConfigId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Student does not belong to this schedule' });
+    }
+
+    if (studentResult.rows[0].has_scheduled) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'You already have an appointment scheduled' });
+    }
+
     // Check if student already has appointment
     const existingAppt = await client.query(
       'SELECT * FROM appointments WHERE student_id = $1',
@@ -208,7 +243,10 @@ router.post('/book', async (req, res) => {
       return res.status(400).json({ message: 'Invalid booking identifiers provided' });
     }
 
-    res.status(500).json({ message: 'Error booking appointment' });
+    res.status(500).json({
+      message: 'Error booking appointment',
+      code: error.code || 'UNKNOWN_ERROR'
+    });
   } finally {
     if (client) {
       client.release();
