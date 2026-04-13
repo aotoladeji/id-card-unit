@@ -280,145 +280,73 @@ export default function PrintQueue() {
         reader.onerror = () => reject(new Error('Failed to convert image to data URL'));
         reader.readAsDataURL(blob);
       });
-      console.log('✅ Data URL created for print preview');
+      console.log('✅ Data URL created for direct card print');
 
-      // Open print window with the generated card
-      const printWindow = window.open('', '_blank', 'width=800,height=600');
-      if (!printWindow) {
-        throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
-      }
+      await new Promise((resolve, reject) => {
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:none;';
+        document.body.appendChild(iframe);
 
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Print ID Card</title>
-          <style>
-            @page {
-              size: 85.6mm 53.98mm;
-              margin: 0;
-            }
-            body {
-              margin: 0;
-              padding: 20px;
-              display: flex;
-              flex-direction: column;
-              justify-content: center;
-              align-items: center;
-              background: #f5f5f5;
-              font-family: Arial, sans-serif;
-            }
-            .preview-container {
-              background: white;
-              padding: 20px;
-              border-radius: 8px;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-            }
-            img {
-              width: 85.6mm;
-              height: 53.98mm;
-              object-fit: contain;
-              margin-bottom: 20px;
-              border: 2px solid #ddd;
-              border-radius: 4px;
-              background: #fff;
-            }
-            .print-message {
-              background: #2196F3;
-              color: white;
-              padding: 15px 20px;
-              border-radius: 4px;
-              font-size: 16px;
-              font-weight: bold;
-              text-align: center;
-              width: 100%;
-              max-width: 400px;
-              animation: pulse 1.5s ease-in-out infinite;
-            }
-            @keyframes pulse {
-              0%, 100% { opacity: 1; }
-              50% { opacity: 0.8; }
-            }
-            .countdown {
-              color: #666;
-              font-size: 14px;
-              margin-top: 10px;
-              text-align: center;
-            }
-            .error {
-              color: #d32f2f;
-              font-size: 14px;
-              margin-top: 10px;
-              padding: 10px;
-              background: #ffebee;
-              border-radius: 4px;
-              display: none;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="preview-container">
-            <div class="print-message">📋 Review the card below</div>
-            <img src="${imageUrl}" alt="ID Card" id="cardImage" />
-            <div class="error" id="error"></div>
-            <div class="countdown">
-              ⏳ Print dialog will open in <span id="countdown">5</span> seconds...
-            </div>
-          </div>
-          <script>
-            const img = document.getElementById('cardImage');
-            const errorDiv = document.getElementById('error');
-            const countdownEl = document.getElementById('countdown');
-            let count = 5;
-            let printStarted = false;
+        const frameWindow = iframe.contentWindow;
+        const doc = iframe.contentDocument || frameWindow?.document;
 
-            img.onerror = function() {
-              errorDiv.style.display = 'block';
-              errorDiv.textContent = '❌ Image failed to load. URL may have expired.';
-              console.error('Image failed to load from:', img.src);
-            };
+        if (!frameWindow || !doc) {
+          document.body.removeChild(iframe);
+          reject(new Error('Failed to initialize print frame'));
+          return;
+        }
 
-            img.onload = function() {
-              console.log('Image loaded successfully');
-              if (!printStarted) {
-                startCountdown();
-              }
-            };
+        const cleanup = () => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        };
 
-            function startCountdown() {
-              printStarted = true;
-              const timer = setInterval(() => {
-                count--;
-                countdownEl.textContent = count;
-                if (count <= 0) {
-                  clearInterval(timer);
-                  window.print();
-                }
-              }, 1000);
-            }
+        doc.open();
+        doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Print ID Card</title>
+  <style>
+    @page { size: 85.6mm 53.98mm; margin: 0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 85.6mm; height: 53.98mm; overflow: hidden; background: #fff; }
+    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    img { display: block; width: 85.6mm; height: 53.98mm; object-fit: fill; }
+  </style>
+</head>
+<body>
+  <img src="${imageUrl}" alt="ID Card" id="cardImage" />
+</body>
+</html>`);
+        doc.close();
 
-            // Fallback: start countdown after 2 seconds even if image doesn't load
-            setTimeout(() => {
-              if (!printStarted) {
-                console.warn('Image took too long to load, starting countdown anyway');
-                startCountdown();
-              }
-            }, 2000);
-          </script>
-        </body>
-        </html>
-      `);
-      printWindow.document.close();
+        const printImage = doc.getElementById('cardImage');
+        let handled = false;
 
-      // Wait for print dialog and user action (extended time)
-      await new Promise((resolve) => {
-        setTimeout(() => {
-          printWindow.close();
-          resolve();
-        }, 8000);
+        const finish = (callback) => {
+          if (handled) return;
+          handled = true;
+          callback();
+          setTimeout(cleanup, 300);
+        };
+
+        const triggerPrint = () => {
+          try {
+            frameWindow.focus();
+            frameWindow.print();
+            finish(resolve);
+          } catch (error) {
+            finish(() => reject(error));
+          }
+        };
+
+        if (printImage) {
+          printImage.onload = () => setTimeout(triggerPrint, 100);
+          printImage.onerror = () => setTimeout(triggerPrint, 100);
+        }
+
+        setTimeout(triggerPrint, 1200);
       });
 
       // Mark as printed in both systems
@@ -458,10 +386,6 @@ export default function PrintQueue() {
         throw new Error('Capture app is offline or unreachable. Please verify CAPTURE_APP_URL and deployment status.');
       } else if (error.message.includes('not found')) {
         throw new Error('Card output not found yet. The capture app may still be generating the printable SVG.');
-      } else if (error.message.includes('Pop-up blocked')) {
-        throw new Error('Pop-up blocked. Please allow pop-ups for this site to print cards.');
-      }
-      
       throw error;
     }
   };
