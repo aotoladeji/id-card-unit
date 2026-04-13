@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const {
   syncCards,
+  addCardToQueue,
   getPrintQueue,
   markAsPrinted,
   markAsFailed,
@@ -16,6 +17,7 @@ const {
 router.use(authenticateToken);
 
 router.post('/sync', syncCards);
+router.post('/', addCardToQueue);
 router.get('/', getPrintQueue);
 router.post('/:id/printed', markAsPrinted);
 router.post('/:id/failed', markAsFailed);

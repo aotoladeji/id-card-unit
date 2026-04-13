@@ -69,6 +69,100 @@ const getPrintQueue = async (req, res) => {
   }
 };
 
+// Add a specific approved card to print queue (used for approved reprints)
+const addCardToQueue = async (req, res) => {
+  try {
+    const { cardId } = req.body || {};
+
+    if (!cardId) {
+      return res.status(400).json({
+        success: false,
+        message: 'cardId is required'
+      });
+    }
+
+    await ensureQueueExclusionsTable();
+
+    const approvedCardResult = await pool.query(
+      'SELECT * FROM approved_cards WHERE card_id = $1',
+      [cardId]
+    );
+
+    if (approvedCardResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Approved card not found'
+      });
+    }
+
+    const approvedCard = approvedCardResult.rows[0];
+
+    const existingQueueResult = await pool.query(
+      'SELECT id, status FROM print_queue WHERE card_id = $1 LIMIT 1',
+      [cardId]
+    );
+
+    if (existingQueueResult.rows.length > 0) {
+      return res.json({
+        success: true,
+        message: 'Card is already in print queue',
+        queueId: existingQueueResult.rows[0].id,
+        alreadyQueued: true
+      });
+    }
+
+    // Reprints are deliberate re-queues, so remove any prior exclusion first.
+    await pool.query('DELETE FROM print_queue_exclusions WHERE card_id = $1', [cardId]);
+
+    const passportBuffer = approvedCard.passport_photo
+      ? Buffer.from(approvedCard.passport_photo)
+      : null;
+
+    const insertResult = await pool.query(
+      `INSERT INTO print_queue
+       (card_id, surname, other_names, matric_no, staff_id, faculty, department,
+        level, card_number, session, passport_photo, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'queued')
+       RETURNING id`,
+      [
+        approvedCard.card_id,
+        approvedCard.surname,
+        approvedCard.other_names,
+        approvedCard.matric_no,
+        approvedCard.staff_id,
+        approvedCard.faculty,
+        approvedCard.department,
+        approvedCard.level,
+        approvedCard.card_number,
+        approvedCard.session,
+        passportBuffer
+      ]
+    );
+
+    await pool.query(
+      'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
+      [
+        req.user.id,
+        'CARD_ADDED_TO_QUEUE',
+        `Added approved reprint card ${approvedCard.card_id} (${approvedCard.surname} ${approvedCard.other_names}) to print queue`
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Card added to print queue',
+      queueId: insertResult.rows[0].id
+    });
+  } catch (error) {
+    console.error('Error adding card to print queue:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error adding card to print queue',
+      error: error.message
+    });
+  }
+};
+
 // Mark card as printed (called after successful print)
 const markAsPrinted = async (req, res) => {
   const client = await pool.connect();
@@ -417,6 +511,7 @@ const deleteCard = async (req, res) => {
 
 module.exports = {
   syncCards,
+  addCardToQueue,
   getPrintQueue,
   markAsPrinted,
   markAsFailed,
