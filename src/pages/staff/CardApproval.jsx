@@ -17,7 +17,7 @@ export default function CardApproval() {
   const [cardToReprint, setCardToReprint] = useState(null);
 
   useEffect(() => {
-    fetchCards();
+    syncFromCaptureApp(true);
     fetchPendingReprints();
     // Auto-sync every 30 seconds
     const interval = setInterval(() => {
@@ -83,8 +83,15 @@ export default function CardApproval() {
     
     try {
       console.log(`[Sync] ${silent ? 'Auto-syncing' : 'Manual sync'} from capture app...`);
-      
-      // Refresh the list from capture app
+
+      await fetch('/api/print-queue/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      // Refresh the locally stored approved-card history after backend sync
       await fetchCards();
       
       if (!silent) {

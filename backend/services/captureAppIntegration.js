@@ -110,6 +110,44 @@ const extractCardIdentity = (card) => ({
   approved_at: card.approved_at ?? card.updated_at ?? card.created_at ?? new Date()
 });
 
+const mergeCardIdentity = (primary = {}, fallback = {}) => ({
+  id: primary.id ?? fallback.id ?? fallback.card_id ?? fallback.cardId,
+  surname: primary.surname || fallback.surname || fallback.last_name || '',
+  other_names: primary.other_names || fallback.other_names || fallback.first_name || fallback.otherNames || '',
+  matric_no: primary.matric_no || fallback.matric_no || fallback.matricNumber || null,
+  staff_id: primary.staff_id || fallback.staff_id || fallback.staffId || null,
+  faculty: primary.faculty || fallback.faculty || null,
+  department: primary.department || fallback.department || null,
+  level: primary.level || fallback.level || null,
+  card_number: primary.card_number || fallback.card_number || fallback.cardNumber || null,
+  session: primary.session || fallback.session || null,
+  passport_photo: primary.passport_photo || fallback.passport_photo || fallback.photo || null,
+  approved_at: primary.approved_at || fallback.approved_at || fallback.updated_at || fallback.created_at || new Date()
+});
+
+const fetchApprovedMetadataMap = async () => {
+  try {
+    const response = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
+      timeout: 10000
+    });
+
+    if (!response.data?.success) {
+      return new Map();
+    }
+
+    const approvedCards = response.data.cards || response.data.approved || [];
+    return new Map(
+      approvedCards
+        .map(extractCardIdentity)
+        .filter((card) => card.id !== undefined && card.id !== null)
+        .map((card) => [String(card.id), card])
+    );
+  } catch (error) {
+    console.warn('⚠️ Unable to fetch approved metadata from capture app:', error.message);
+    return new Map();
+  }
+};
+
 const ensureQueueExclusionsTable = async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS print_queue_exclusions (
@@ -160,8 +198,13 @@ const syncApprovedCards = async () => {
     }
 
     const queueCards = response.data.cards || response.data.queue || [];
+    const approvedMetadataMap = await fetchApprovedMetadataMap();
     const approvedCards = queueCards
-      .map(extractCardIdentity)
+      .map((queueCard) => {
+        const queueIdentity = extractCardIdentity(queueCard);
+        const approvedIdentity = approvedMetadataMap.get(String(queueIdentity.id));
+        return mergeCardIdentity(queueIdentity, approvedIdentity);
+      })
       .filter((card) => card.id !== undefined && card.id !== null)
       .filter((card) => {
         // Keep only approved cards when status is present.
@@ -217,7 +260,36 @@ const syncApprovedCards = async () => {
           console.log(`  ✅ Saved to approved_cards history`);
           addedToHistory++;
         } else {
-          console.log(`  ℹ️  Already in approved_cards history`);
+          await pool.query(
+            `UPDATE approved_cards
+             SET surname = COALESCE(surname, $2),
+                 other_names = COALESCE(other_names, $3),
+                 matric_no = COALESCE(matric_no, $4),
+                 staff_id = COALESCE(staff_id, $5),
+                 faculty = COALESCE(faculty, $6),
+                 department = COALESCE(department, $7),
+                 level = COALESCE(level, $8),
+                 card_number = COALESCE(card_number, $9),
+                 session = COALESCE(session, $10),
+                 passport_photo = COALESCE(passport_photo, $11),
+                 updated_at = CURRENT_TIMESTAMP,
+                 synced_from_capture_app_at = CURRENT_TIMESTAMP
+             WHERE card_id = $1`,
+            [
+              card.id,
+              card.surname,
+              card.other_names,
+              card.matric_no,
+              card.staff_id,
+              card.faculty,
+              card.department,
+              card.level,
+              card.card_number,
+              card.session,
+              passportBuffer
+            ]
+          );
+          console.log(`  ℹ️  Already in approved_cards history (backfilled metadata if missing)`);
         }
         
         // 2. Skip cards explicitly excluded from queue (printed/removed locally)
@@ -239,6 +311,15 @@ const syncApprovedCards = async () => {
         );
 
         if (collectionCheck.rows.length > 0) {
+          await pool.query(
+            `UPDATE card_collections
+             SET faculty = COALESCE(faculty, $2),
+                 department = COALESCE(department, $3),
+                 card_number = COALESCE(card_number, $4),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE card_id = $1`,
+            [card.id, card.faculty, card.department, card.card_number]
+          );
           console.log('  ⏭️  Already in collection workflow, skipping queue insert');
           skipped++;
           continue;
@@ -250,6 +331,12 @@ const syncApprovedCards = async () => {
         );
 
         if (historyPrintCheck.rows.length > 0) {
+          await pool.query(
+            `UPDATE print_history
+             SET card_number = COALESCE(card_number, $2)
+             WHERE card_id = $1`,
+            [card.id, card.card_number]
+          );
           console.log('  ⏭️  Already in print history, skipping queue insert');
           skipped++;
           continue;
@@ -262,6 +349,26 @@ const syncApprovedCards = async () => {
         );
 
         if (queueCheck.rows.length > 0) {
+          await pool.query(
+            `UPDATE print_queue
+             SET faculty = COALESCE(faculty, $2),
+                 department = COALESCE(department, $3),
+                 level = COALESCE(level, $4),
+                 card_number = COALESCE(card_number, $5),
+                 session = COALESCE(session, $6),
+                 passport_photo = COALESCE(passport_photo, $7),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE card_id = $1`,
+            [
+              card.id,
+              card.faculty,
+              card.department,
+              card.level,
+              card.card_number,
+              card.session,
+              passportBuffer
+            ]
+          );
           console.log(`  ⏭️  Already in print queue (queue ID: ${queueCheck.rows[0].id})`);
           skipped++;
           continue;

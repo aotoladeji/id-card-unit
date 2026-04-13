@@ -7,7 +7,11 @@ const getCollections = async (req, res) => {
     const { status, search } = req.query;
     
     let query = `
-      SELECT cc.*, COALESCE(cc.card_number, ac.card_number) AS card_number, u.name as collected_by_name
+      SELECT cc.*,
+             COALESCE(cc.faculty, ac.faculty) AS faculty,
+             COALESCE(cc.department, ac.department) AS department,
+             COALESCE(cc.card_number, ac.card_number) AS card_number,
+             u.name as collected_by_name
       FROM card_collections cc
       LEFT JOIN approved_cards ac ON ac.card_id = cc.card_id
       LEFT JOIN users u ON cc.collected_by = u.id
@@ -100,7 +104,10 @@ const verifyAndCollect = async (req, res) => {
 
     // Get collection record to find the card_id
     const collectionResult = await pool.query(
-      `SELECT cc.*, COALESCE(cc.card_number, ac.card_number) AS card_number
+      `SELECT cc.*,
+              COALESCE(cc.faculty, ac.faculty) AS faculty,
+              COALESCE(cc.department, ac.department) AS department,
+              COALESCE(cc.card_number, ac.card_number) AS card_number
        FROM card_collections cc
        LEFT JOIN approved_cards ac ON ac.card_id = cc.card_id
        WHERE cc.id = $1`,

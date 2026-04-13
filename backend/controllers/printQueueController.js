@@ -40,7 +40,13 @@ const getPrintQueue = async (req, res) => {
     const { status } = req.query;
     
     let query = `
-      SELECT pq.*, COALESCE(pq.card_number, ac.card_number) AS card_number, u.name as printed_by_name
+      SELECT pq.*,
+             COALESCE(pq.faculty, ac.faculty) AS faculty,
+             COALESCE(pq.department, ac.department) AS department,
+             COALESCE(pq.level, ac.level) AS level,
+             COALESCE(pq.card_number, ac.card_number) AS card_number,
+             COALESCE(pq.session, ac.session) AS session,
+             u.name as printed_by_name
       FROM print_queue pq
       LEFT JOIN approved_cards ac ON ac.card_id = pq.card_id
       LEFT JOIN users u ON pq.printed_by = u.id
@@ -185,7 +191,12 @@ const markAsPrinted = async (req, res) => {
 
     // Get card details
     const cardResult = await client.query(
-      `SELECT pq.*, COALESCE(pq.card_number, ac.card_number) AS card_number
+      `SELECT pq.*,
+              COALESCE(pq.faculty, ac.faculty) AS faculty,
+              COALESCE(pq.department, ac.department) AS department,
+              COALESCE(pq.level, ac.level) AS level,
+              COALESCE(pq.card_number, ac.card_number) AS card_number,
+              COALESCE(pq.session, ac.session) AS session
        FROM print_queue pq
        LEFT JOIN approved_cards ac ON ac.card_id = pq.card_id
        WHERE pq.id = $1`,
