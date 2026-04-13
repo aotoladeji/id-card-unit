@@ -386,6 +386,8 @@ export default function PrintQueue() {
         throw new Error('Capture app is offline or unreachable. Please verify CAPTURE_APP_URL and deployment status.');
       } else if (error.message.includes('not found')) {
         throw new Error('Card output not found yet. The capture app may still be generating the printable SVG.');
+      }
+
       throw error;
     }
   };
