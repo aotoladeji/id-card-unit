@@ -77,15 +77,25 @@ const extractStoredTemplateCandidates = (fingerprintPayload = {}) => {
       continue;
     }
     
-    // If data is a byte array, try to convert to base64
+    // If data is a byte array/buffer-like, decode carefully.
+    // In production payloads this is often a JSON-serialized Node Buffer
+    // containing ASCII template text, so UTF-8 decode is the primary path.
     if (Array.isArray(fingerData.data) || Buffer.isBuffer(fingerData.data)) {
       try {
         const buffer = Buffer.isBuffer(fingerData.data) 
           ? fingerData.data 
           : Buffer.from(fingerData.data);
-        const base64 = buffer.toString('base64');
-        if (base64 && !candidates.includes(base64)) {
-          candidates.push(base64);
+
+        const utf8Template = normalizeFingerprint(buffer.toString('utf8'));
+        if (utf8Template && !candidates.includes(utf8Template)) {
+          candidates.push(utf8Template);
+          continue;
+        }
+
+        // Fallback for truly binary payloads.
+        const base64Template = normalizeFingerprint(buffer.toString('base64'));
+        if (base64Template && !candidates.includes(base64Template)) {
+          candidates.push(base64Template);
         }
       } catch (error) {
         console.warn(`[Fingerprint] Could not convert ${position} template data to base64:`, error.message);
