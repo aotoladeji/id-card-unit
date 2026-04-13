@@ -317,7 +317,7 @@ export default function Collections() {
                     <strong>{card.surname}</strong> {card.other_names}
                   </td>
                   <td>{card.matric_no || card.staff_id || '—'}</td>
-                  <td>{card.card_number || '—'}</td>
+                  <td>{card.card_number || card.cardNumber || '—'}</td>
                   <td>
                     <div>{card.department}</div>
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>

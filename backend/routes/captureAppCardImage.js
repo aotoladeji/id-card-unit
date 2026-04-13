@@ -36,11 +36,21 @@ const matchesCardIdInString = (text, requestedId) => {
 const findOutputFileUrlForCard = (files, requestedId) => {
   if (!Array.isArray(files) || files.length === 0) return null;
 
+  const pickPreferredAssetUrl = (file) => normalizeUrl(
+    file.pngUrl ||
+    file.png_url ||
+    file.imageUrl ||
+    file.image_url ||
+    file.url ||
+    file.path ||
+    file.fileUrl
+  );
+
   // 1) Prefer explicit id fields in file records.
   for (const file of files) {
     const candidates = extractCardIdCandidates(file);
     if (candidates.some((value) => value === String(requestedId))) {
-      const directUrl = normalizeUrl(file.url || file.path || file.fileUrl);
+      const directUrl = pickPreferredAssetUrl(file);
       if (directUrl) return directUrl;
     }
   }
@@ -51,7 +61,7 @@ const findOutputFileUrlForCard = (files, requestedId) => {
       .filter(Boolean)
       .join(' ');
     if (matchesCardIdInString(candidateText, requestedId)) {
-      const inferredUrl = normalizeUrl(file.url || file.path || file.fileUrl);
+      const inferredUrl = pickPreferredAssetUrl(file);
       if (inferredUrl) return inferredUrl;
     }
   }
@@ -174,29 +184,27 @@ router.get('/:cardId/image', async (req, res) => {
     // According to the API guide, the capture app provides:
     // GET /api/idcard/:userId - Returns PNG image directly
     
-    // Method 1: Prefer capture app SVG output by card ID.
+    // Method 1: Prefer the rendered PNG output by card ID.
     try {
-      const svgBuffer = await fetchSvgFromOutputEndpoint(cardId);
-      if (svgBuffer) {
-        console.log(`✅ Successfully fetched card SVG from /api/printing/output-svg for card ${cardId}`);
-        res.set('Content-Type', 'image/svg+xml; charset=utf-8');
+      const outputImage = await fetchImageFromOutputImage(cardId);
+      if (outputImage) {
+        console.log(`✅ Successfully fetched card image from /api/printing/output-image for card ${cardId}`);
+        res.set('Content-Type', 'image/png');
         res.set('Cache-Control', 'public, max-age=3600');
-        return res.send(svgBuffer);
+        return res.send(outputImage);
       }
     } catch (error) {
-      console.error(`❌ /api/printing/output-svg failed: ${error.message}`);
+      console.error(`❌ /api/printing/output-image failed: ${error.message}`);
+
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({
           success: false,
           message: `Capture app is not available at ${CAPTURE_APP_URL}.`
         });
       }
-      if (error.response?.status === 404) {
-        console.log(`ℹ️ SVG not ready/not found for card ${cardId}, trying fallback endpoints...`);
-      }
     }
 
-    // Method 2: Use capture output listing and load the file URL for this card.
+    // Method 2: Use capture output listing and prefer PNG/image URLs for this card.
     try {
       const outputListImage = await fetchImageFromOutputList(cardId);
       if (outputListImage) {
@@ -217,23 +225,25 @@ router.get('/:cardId/image', async (req, res) => {
       }
     }
 
-    // Method 3: Fallback to output-image endpoint by card ID.
+    // Method 3: Fallback to capture app SVG output by card ID.
     try {
-      const outputImage = await fetchImageFromOutputImage(cardId);
-      if (outputImage) {
-        console.log(`✅ Successfully fetched card image from /api/printing/output-image for card ${cardId}`);
-        res.set('Content-Type', 'image/png');
+      const svgBuffer = await fetchSvgFromOutputEndpoint(cardId);
+      if (svgBuffer) {
+        console.log(`✅ Successfully fetched card SVG from /api/printing/output-svg for card ${cardId}`);
+        res.set('Content-Type', 'image/svg+xml; charset=utf-8');
         res.set('Cache-Control', 'public, max-age=3600');
-        return res.send(outputImage);
+        return res.send(svgBuffer);
       }
     } catch (error) {
-      console.error(`❌ /api/printing/output-image failed: ${error.message}`);
-
+      console.error(`❌ /api/printing/output-svg failed: ${error.message}`);
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({
           success: false,
           message: `Capture app is not available at ${CAPTURE_APP_URL}.`
         });
+      }
+      if (error.response?.status === 404) {
+        console.log(`ℹ️ SVG not ready/not found for card ${cardId}, trying fallback endpoints...`);
       }
     }
 

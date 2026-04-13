@@ -12,9 +12,6 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
     console.log('Print method:', printMethod);
     console.log('Card data:', card);
     
-    // Test alert to confirm button is working
-    alert('Print button clicked! Method: ' + printMethod);
-    
     setPrinting(true);
 
     try {
