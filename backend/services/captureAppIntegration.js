@@ -46,6 +46,56 @@ const extractImageCandidates = (scanPayload = {}) => {
   return [...new Set(images)];
 };
 
+/**
+ * Extract stored fingerprint template bytes from the capture app's fingerprint response
+ * Converts byte arrays to base64 format for submission to the matcher
+ */
+const extractStoredTemplateCandidates = (fingerprintPayload = {}) => {
+  const candidates = [];
+  
+  if (!fingerprintPayload?.fingerprints || typeof fingerprintPayload.fingerprints !== 'object') {
+    return candidates;
+  }
+  
+  const fingerprints = fingerprintPayload.fingerprints;
+  
+  // Try to extract template data from each finger position
+  // Format: fingerprints.left_thumb.data, fingerprints.left_index.data, etc.
+  const fingerPositions = ['left_thumb', 'left_index', 'right_thumb', 'right_index'];
+  
+  for (const position of fingerPositions) {
+    const fingerData = fingerprints[position];
+    
+    if (!fingerData || typeof fingerData !== 'object') continue;
+    
+    // If data is already a base64 string, use directly
+    if (typeof fingerData.data === 'string') {
+      const normalized = normalizeFingerprint(fingerData.data);
+      if (normalized && !candidates.includes(normalized)) {
+        candidates.push(normalized);
+      }
+      continue;
+    }
+    
+    // If data is a byte array, try to convert to base64
+    if (Array.isArray(fingerData.data) || Buffer.isBuffer(fingerData.data)) {
+      try {
+        const buffer = Buffer.isBuffer(fingerData.data) 
+          ? fingerData.data 
+          : Buffer.from(fingerData.data);
+        const base64 = buffer.toString('base64');
+        if (base64 && !candidates.includes(base64)) {
+          candidates.push(base64);
+        }
+      } catch (error) {
+        console.warn(`[Fingerprint] Could not convert ${position} template data to base64:`, error.message);
+      }
+    }
+  }
+  
+  return candidates;
+};
+
 const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates = []) => {
   const ids = [...new Set(identityCandidates.filter(Boolean).map((v) => String(v).trim()))];
   const scans = [...new Set(scanCandidates.filter(Boolean).map((v) => String(v).trim()))];
@@ -512,25 +562,11 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
       };
     }
 
-    // Capture app matcher is the source of truth.
-    // Try multiple scan candidates from scanner payload + image preview (FigPicBase64).
-    const scanImage = normalizeFingerprint(options.scannedFingerprintImage);
-    const scannedTemplates = extractScannedTemplateCandidates(scanPayload);
-    const imageCandidates = extractImageCandidates(scanPayload);
-    const matcherScanCandidates = [
-      ...scannedTemplates,
-      ...imageCandidates,
-      scanImage,
-      scanned
-    ];
-
-    const matcherResult = await verifyWithCaptureMatcher(
-      identityCandidates,
-      matcherScanCandidates
-    );
-
-    // Optional fetch for metadata after matcher attempt; do not block verification path.
+    // Fetch stored fingerprint templates FIRST so we can include them as scan candidates
+    // This ensures the matcher gets data in the format it expects (stored template format)
+    let storedTemplateCandidates = [];
     let payload = null;
+    
     for (const candidate of identityCandidates) {
       try {
         const response = await axios.get(
@@ -542,6 +578,8 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
         );
         if (response.data?.success) {
           payload = response.data;
+          storedTemplateCandidates = extractStoredTemplateCandidates(response.data);
+          console.log(`[Fingerprint] Extracted ${storedTemplateCandidates.length} stored template candidates for card ${candidate}`);
           break;
         }
       } catch (error) {
@@ -550,6 +588,28 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
         }
       }
     }
+
+    // Capture app matcher is the source of truth.
+    // Try multiple scan candidates: scanned templates, scanned images, AND stored templates
+    // Including stored templates gives the matcher data in the format it expects
+    const scanImage = normalizeFingerprint(options.scannedFingerprintImage);
+    const scannedTemplates = extractScannedTemplateCandidates(scanPayload);
+    const imageCandidates = extractImageCandidates(scanPayload);
+    
+    const matcherScanCandidates = [
+      ...scannedTemplates,        // Templates from Windows scanner (if any)
+      ...storedTemplateCandidates, // Stored template bytes (in proper format)
+      ...imageCandidates,          // Images from Windows scanner
+      scanImage,
+      scanned
+    ];
+
+    console.log(`[Fingerprint] Attempting verification with ${matcherScanCandidates.length} total scan candidates (${scannedTemplates.length} scanned templates + ${storedTemplateCandidates.length} stored templates + ${imageCandidates.length} images)`);
+
+    const matcherResult = await verifyWithCaptureMatcher(
+      identityCandidates,
+      matcherScanCandidates
+    );
 
     return {
       success: true,
