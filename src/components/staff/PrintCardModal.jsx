@@ -92,115 +92,34 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
               size: 85.6mm 53.98mm;
               margin: 0;
             }
-            body {
-              margin: 0;
-              padding: 20px;
-              display: flex;
-              flex-direction: column;
-              justify-content: center;
-              align-items: center;
-              background: #f5f5f5;
-              font-family: Arial, sans-serif;
-            }
-            .preview-container {
-              background: white;
-              padding: 20px;
-              border-radius: 8px;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-            }
-            img {
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            html, body {
               width: 85.6mm;
               height: 53.98mm;
-              object-fit: contain;
-              margin-bottom: 20px;
-              border: 2px solid #ddd;
-              border-radius: 4px;
+              overflow: hidden;
               background: #fff;
             }
-            .print-message {
-              background: #2196F3;
-              color: white;
-              padding: 15px 20px;
-              border-radius: 4px;
-              font-size: 16px;
-              font-weight: bold;
-              text-align: center;
-              width: 100%;
-              max-width: 400px;
-              animation: pulse 1.5s ease-in-out infinite;
-            }
-            @keyframes pulse {
-              0%, 100% { opacity: 1; }
-              50% { opacity: 0.8; }
-            }
-            .countdown {
-              color: #666;
-              font-size: 14px;
-              margin-top: 10px;
-              text-align: center;
-            }
-            .error {
-              color: #d32f2f;
-              font-size: 14px;
-              margin-top: 10px;
-              padding: 10px;
-              background: #ffebee;
-              border-radius: 4px;
-              display: none;
+            img {
+              display: block;
+              width: 85.6mm;
+              height: 53.98mm;
+              object-fit: fill;
             }
           </style>
         </head>
         <body>
-          <div class="preview-container">
-            <div class="print-message">📋 Review the card below</div>
-            <img src="${imageUrl}" alt="ID Card" id="cardImage" />
-            <div class="error" id="error"></div>
-            <div class="countdown">
-              ⏳ Print dialog will open in <span id="countdown">5</span> seconds...
-            </div>
-          </div>
+          <img src="${imageUrl}" alt="ID Card" id="cardImage" />
           <script>
             const img = document.getElementById('cardImage');
-            const errorDiv = document.getElementById('error');
-            const countdownEl = document.getElementById('countdown');
-            let count = 5;
-            let printStarted = false;
-
-            img.onerror = function() {
-              errorDiv.style.display = 'block';
-              errorDiv.textContent = '❌ Image failed to load. URL may have expired.';
-              console.error('Image failed to load from:', img.src);
-            };
-
-            img.onload = function() {
-              console.log('Image loaded successfully');
-              if (!printStarted) {
-                startCountdown();
-              }
-            };
-
-            function startCountdown() {
-              printStarted = true;
-              const timer = setInterval(() => {
-                count--;
-                countdownEl.textContent = count;
-                if (count <= 0) {
-                  clearInterval(timer);
-                  window.print();
-                }
-              }, 1000);
+            let printed = false;
+            function doPrint() {
+              if (printed) return;
+              printed = true;
+              window.print();
             }
-
-            // Fallback: start countdown after 2 seconds even if image doesn't load
-            setTimeout(() => {
-              if (!printStarted) {
-                console.warn('Image took too long to load, starting countdown anyway');
-                startCountdown();
-              }
-            }, 2000);
+            img.onload = function() { setTimeout(doPrint, 300); };
+            img.onerror = function() { setTimeout(doPrint, 300); };
+            setTimeout(doPrint, 2000);
           </script>
         </body>
         </html>
