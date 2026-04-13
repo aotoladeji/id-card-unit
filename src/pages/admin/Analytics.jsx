@@ -19,6 +19,9 @@ export default function Analytics() {
   });
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('month'); // 'week', 'month', 'all'
+  const [developerPassword, setDeveloperPassword] = useState('');
+  const [resetConfirmation, setResetConfirmation] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     fetchAnalytics();
@@ -133,6 +136,49 @@ export default function Analytics() {
       showNotification('Error loading analytics', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeveloperReset = async () => {
+    if (!developerPassword) {
+      showNotification('Enter the developer password first', 'warning');
+      return;
+    }
+
+    if (resetConfirmation !== 'RESET ACTIVITY DATA') {
+      showNotification('Type RESET ACTIVITY DATA to confirm', 'warning');
+      return;
+    }
+
+    setResetting(true);
+    try {
+      const response = await fetch('/api/admin/developer-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          password: developerPassword,
+          confirmation: resetConfirmation
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to reset operational data');
+      }
+
+      showNotification(data.message || 'Operational data reset completed', 'success');
+      setDeveloperPassword('');
+      setResetConfirmation('');
+      await fetchAnalytics();
+    } catch (error) {
+      console.error('Developer reset failed:', error);
+      showNotification(error.message || 'Developer reset failed', 'error');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -374,6 +420,44 @@ export default function Analytics() {
             No prints yet
           </div>
         )}
+      </div>
+
+      <div className="card" style={{ border: '1px solid #c94b4b', marginTop: '2rem' }}>
+        <div className="card-header">
+          <h3 className="card-title">🔐 Developer Reset Key</h3>
+        </div>
+        <div style={{ padding: '1.5rem' }}>
+          <p style={{ marginBottom: '0.75rem', color: 'var(--text-dim)' }}>
+            Clears operational activity data only. User accounts, inventory setup, and scheduling configuration survive.
+          </p>
+          <p style={{ marginBottom: '1rem', color: '#c94b4b', fontWeight: '600' }}>
+            This wipes captured and approved card activity, print queue and history, collections, requests, reports, logs, and scheduling activity records.
+          </p>
+          <div style={{ display: 'grid', gap: '0.75rem', maxWidth: '480px' }}>
+            <input
+              type="password"
+              className="form-control"
+              placeholder="Developer password"
+              value={developerPassword}
+              onChange={(e) => setDeveloperPassword(e.target.value)}
+            />
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Type RESET ACTIVITY DATA"
+              value={resetConfirmation}
+              onChange={(e) => setResetConfirmation(e.target.value)}
+            />
+            <button
+              className="btn btn-danger"
+              onClick={handleDeveloperReset}
+              disabled={resetting}
+              style={{ justifySelf: 'start' }}
+            >
+              {resetting ? '⏳ Resetting...' : 'Reset Operational Data'}
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
