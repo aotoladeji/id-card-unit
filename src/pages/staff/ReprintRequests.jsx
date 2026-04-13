@@ -80,7 +80,7 @@ export default function ReprintRequests() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ cardId: card.id })
+        body: JSON.stringify({ cardId: card.card_id || card.id })
       });
 
       const data = await response.json();

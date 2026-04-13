@@ -83,10 +83,18 @@ const addCardToQueue = async (req, res) => {
 
     await ensureQueueExclusionsTable();
 
-    const approvedCardResult = await pool.query(
+    let approvedCardResult = await pool.query(
       'SELECT * FROM approved_cards WHERE card_id = $1',
       [cardId]
     );
+
+    // Backward-compatible fallback for callers that send approved_cards row id instead of card_id.
+    if (approvedCardResult.rows.length === 0) {
+      approvedCardResult = await pool.query(
+        'SELECT * FROM approved_cards WHERE id = $1',
+        [cardId]
+      );
+    }
 
     if (approvedCardResult.rows.length === 0) {
       return res.status(404).json({
