@@ -54,10 +54,6 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
       }
 
       const blob = await response.blob();
-      console.log('✅ Card fetched successfully');
-      console.log('   Size:', blob.size, 'bytes');
-      console.log('   Type:', blob.type);
-      
       if (blob.size === 0) {
         console.error('❌ Image blob is empty!');
         throw new Error('Image blob is empty - check if card ID is valid');
@@ -69,66 +65,43 @@ export default function PrintCardModal({ card, onClose, onPrintComplete }) {
         reader.onerror = () => reject(new Error('Failed to convert image to data URL'));
         reader.readAsDataURL(blob);
       });
-      console.log('✅ Data URL created for print preview');
-      console.log('📖 Opening print window...');
 
-      // Open print window with the generated card
-      const printWindow = window.open('', '_blank', 'width=800,height=600');
-      
-      if (!printWindow) {
-        throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
-      }
+      // Print via a hidden iframe so there is no popup window and no extra pages.
+      await new Promise((resolve, reject) => {
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:none;';
+        document.body.appendChild(iframe);
 
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Print ID Card</title>
-          <style>
-            @page {
-              size: 85.6mm 53.98mm;
-              margin: 0;
-            }
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            html, body {
-              width: 85.6mm;
-              height: 53.98mm;
-              overflow: hidden;
-              background: #fff;
-            }
-            img {
-              display: block;
-              width: 85.6mm;
-              height: 53.98mm;
-              object-fit: fill;
-            }
-          </style>
-        </head>
-        <body>
-          <img src="${imageUrl}" alt="ID Card" id="cardImage" />
-          <script>
-            const img = document.getElementById('cardImage');
-            let printed = false;
-            function doPrint() {
-              if (printed) return;
-              printed = true;
-              window.print();
-            }
-            img.onload = function() { setTimeout(doPrint, 300); };
-            img.onerror = function() { setTimeout(doPrint, 300); };
-            setTimeout(doPrint, 2000);
-          </script>
-        </body>
-        </html>
-      `);
-      printWindow.document.close();
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.open();
+        doc.write(`<!DOCTYPE html>
+<html>
+<head>
+<style>
+@page { size: 85.6mm 53.98mm; margin: 0; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 85.6mm; height: 53.98mm; overflow: hidden; background: #fff; }
+img { display: block; width: 85.6mm; height: 53.98mm; object-fit: fill; }
+</style>
+</head>
+<body><img src="${imageUrl}" /></body>
+</html>`);
+        doc.close();
 
-      // Wait for print dialog and user action (extended time)
-      await new Promise((resolve) => {
-        setTimeout(() => {
-          printWindow.close();
-          resolve();
-        }, 8000);
+        iframe.onload = () => {
+          try {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          } catch (err) {
+            reject(err);
+            return;
+          }
+          // Give the print dialog time to open, then clean up
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+            resolve();
+          }, 500);
+        };
       });
     } catch (error) {
       console.error('Browser print error:', error);
