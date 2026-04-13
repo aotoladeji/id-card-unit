@@ -119,7 +119,7 @@ const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates 
           }
         );
 
-        if (response.data?.matched) {
+        if (response.data?.matched || response.data?.match) {
           return {
             success: true,
             matched: true,
