@@ -1,4 +1,3 @@
-const { Pool } = require('pg');
 if (!process.env.VERCEL) {
   require('dotenv').config();
 }
@@ -9,7 +8,16 @@ const databaseUrl =
   process.env.POSTGRES_URL_NON_POOLING ||
   process.env.POSTGRES_PRISMA_URL;
 
-const useDatabaseUrl = Boolean(databaseUrl);
+const dbHostLooksLikeUrl = ['postgres://', 'postgresql://'].some(prefix =>
+  String(process.env.DB_HOST || '').toLowerCase().startsWith(prefix)
+);
+
+const resolvedDatabaseUrl = databaseUrl || (dbHostLooksLikeUrl ? process.env.DB_HOST : '');
+
+const useDatabaseUrl = Boolean(resolvedDatabaseUrl);
+const prefersNeonServerless = String(process.env.NEON_HTTP_DRIVER || 'true').toLowerCase() !== 'false';
+const isNeonConnection = /neon\.tech/i.test(resolvedDatabaseUrl || process.env.DB_HOST || '');
+const useNeonServerless = useDatabaseUrl && isNeonConnection && prefersNeonServerless;
 
 const parseSslFlag = (value) => {
   if (!value) return false;
@@ -18,9 +26,19 @@ const parseSslFlag = (value) => {
 
 const shouldUseSsl = parseSslFlag(process.env.DB_SSL) || parseSslFlag(process.env.PGSSLMODE) || process.env.NODE_ENV === 'production';
 
+let Pool;
+if (useNeonServerless) {
+  const serverless = require('@neondatabase/serverless');
+  const ws = require('ws');
+  serverless.neonConfig.webSocketConstructor = ws;
+  Pool = serverless.Pool;
+} else {
+  Pool = require('pg').Pool;
+}
+
 const connectionConfig = useDatabaseUrl
   ? {
-      connectionString: databaseUrl,
+      connectionString: resolvedDatabaseUrl,
       ssl: shouldUseSsl ? { rejectUnauthorized: false } : false,
     }
   : {
@@ -33,12 +51,13 @@ const connectionConfig = useDatabaseUrl
     };
 
 console.log('🔎 DB CONFIG:', {
-  source: useDatabaseUrl ? 'DATABASE_URL/POSTGRES_URL' : 'DB_*',
+  source: databaseUrl ? 'DATABASE_URL/POSTGRES_URL' : dbHostLooksLikeUrl ? 'DB_HOST(connection-string)' : 'DB_*',
+  driver: useNeonServerless ? 'neon-serverless(ws)' : 'pg(tcp)',
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   user: process.env.DB_USER,
   database: process.env.DB_NAME,
-  hasConnectionString: Boolean(databaseUrl),
+  hasConnectionString: Boolean(resolvedDatabaseUrl),
   ssl: shouldUseSsl,
 });
 

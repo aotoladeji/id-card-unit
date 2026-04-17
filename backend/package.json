@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "bcrypt": "^6.0.0",
     "bwip-js": "^4.8.0",
     "cors": "^2.8.6",
@@ -22,6 +23,7 @@
     "nodemailer": "^8.0.1",
     "pg": "^8.18.0",
     "sharp": "^0.34.5",
+    "ws": "^8.20.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

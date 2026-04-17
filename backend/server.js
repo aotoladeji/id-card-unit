@@ -30,6 +30,7 @@ const diagnosticRoutes = require('./routes/diagnostic');
 
 // Import database connection
 const pool = require('./config/database');
+const { startDbKeepAlive } = require('./services/dbKeepAlive');
 
 // Create Express app
 const app = express();
@@ -211,12 +212,16 @@ app.use((req, res) => {
 // Start server (only when run directly, not when loaded by Vercel serverless)
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
+  const stopDbKeepAlive = startDbKeepAlive(pool);
 
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
     console.log(`📍 URL: http://localhost:${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
   });
+
+  process.once('SIGINT', stopDbKeepAlive);
+  process.once('SIGTERM', stopDbKeepAlive);
 }
 
 // Handle unhandled promise rejections
