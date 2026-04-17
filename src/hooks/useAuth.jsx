@@ -28,9 +28,9 @@ export const AuthProvider = ({ children }) => {
         }
       })
       .catch(() => {
-        // Server unreachable — clear session to be safe
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        // Server unreachable on verify — keep existing session rather than
+        // clearing it, which would cause the Login page to hard-remount.
+        // Token will be rejected naturally on the next API call if truly invalid.
       })
       .finally(() => setLoading(false));
   }, []);
