@@ -65,6 +65,15 @@ const isSenderRejectedError = (error) => {
   );
 };
 
+const isDailySendLimitError = (error) => {
+  const combined = `${error?.code || ''} ${error?.responseCode || ''} ${error?.response || ''} ${error?.message || ''}`.toLowerCase();
+  return (
+    combined.includes('daily user sending limit exceeded') ||
+    combined.includes('5.4.5') ||
+    (combined.includes('gmail') && combined.includes('sending limit'))
+  );
+};
+
 // Email transporter setup
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -663,6 +672,7 @@ const sendSchedulingEmails = async (req, res) => {
     const failures = [];
     const failureSummary = {};
     const failureDetails = [];
+    let dailyLimitExceeded = false;
     const preferredSender = getPreferredSender();
     const fallbackSender = process.env.SMTP_USER || preferredSender;
     const frontendBaseUrl = getFrontendBaseUrl();
@@ -681,6 +691,13 @@ const sendSchedulingEmails = async (req, res) => {
       .join('');
 
     for (const student of students.rows) {
+      if (dailyLimitExceeded) {
+        failed++;
+        failures.push(student.email || 'unknown-email');
+        failureSummary['DAILY_LIMIT_EXCEEDED'] = (failureSummary['DAILY_LIMIT_EXCEEDED'] || 0) + 1;
+        continue;
+      }
+
       if (!student.email) {
         failed++;
         failures.push('missing-email');
@@ -837,10 +854,15 @@ const sendSchedulingEmails = async (req, res) => {
       } catch (err) {
         failed++;
         failures.push(student.email);
-        const reason = err?.code || String(err?.responseCode || 'send-failed');
+        const reason = isDailySendLimitError(err)
+          ? 'DAILY_LIMIT_EXCEEDED'
+          : (err?.code || String(err?.responseCode || 'send-failed'));
         failureSummary[reason] = (failureSummary[reason] || 0) + 1;
         if (failureDetails.length < 5) {
           failureDetails.push(`${student.email}: ${reason} ${err.message || ''}`.trim());
+        }
+        if (reason === 'DAILY_LIMIT_EXCEEDED') {
+          dailyLimitExceeded = true;
         }
         console.error(`Failed to send email to ${student.email}:`, err.message);
       }
@@ -855,9 +877,14 @@ const sendSchedulingEmails = async (req, res) => {
       console.warn('Non-fatal scheduling email log error:', logError.message);
     }
 
-    const message = failed > 0
-      ? `Sent ${sent} of ${totalPending} emails. ${failed} failed (${failures.slice(0, 3).join(', ')}${failures.length > 3 ? '...' : ''}).`
-      : `Successfully sent ${sent} email${sent !== 1 ? 's' : ''}.`;
+    let message;
+    if (failureSummary['DAILY_LIMIT_EXCEEDED']) {
+      message = 'Email provider daily sending limit exceeded. Try again later or switch SMTP account/provider.';
+    } else {
+      message = failed > 0
+        ? `Sent ${sent} of ${totalPending} emails. ${failed} failed (${failures.slice(0, 3).join(', ')}${failures.length > 3 ? '...' : ''}).`
+        : `Successfully sent ${sent} email${sent !== 1 ? 's' : ''}.`;
+    }
 
     res.json({
       success: true,
