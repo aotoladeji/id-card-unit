@@ -47,6 +47,24 @@ const formatDateOrTbd = (value) => {
   return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+const getPreferredSender = () => {
+  return process.env.SMTP_FROM || process.env.SMTP_USER || '"ID Card Unit" <noreply@university.edu>';
+};
+
+const isSenderRejectedError = (error) => {
+  const combined = `${error?.code || ''} ${error?.responseCode || ''} ${error?.response || ''} ${error?.message || ''}`.toLowerCase();
+  return (
+    combined.includes('sender') ||
+    combined.includes('mail from') ||
+    combined.includes('envelope') ||
+    combined.includes('from address') ||
+    combined.includes('not owned by user') ||
+    combined.includes('5.7.1') ||
+    combined.includes('550') ||
+    combined.includes('553')
+  );
+};
+
 // Email transporter setup
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -593,6 +611,16 @@ const sendSchedulingEmails = async (req, res) => {
       return res.status(400).json({ message: 'SMTP credentials are not configured' });
     }
 
+    try {
+      await transporter.verify();
+    } catch (smtpError) {
+      return res.status(502).json({
+        message: 'SMTP connection/authentication failed',
+        code: smtpError.code || null,
+        detail: smtpError.message
+      });
+    }
+
     const config = await pool.query(
       'SELECT * FROM scheduling_config WHERE id = $1',
       [id]
@@ -633,6 +661,10 @@ const sendSchedulingEmails = async (req, res) => {
     let sent = 0;
     let failed = 0;
     const failures = [];
+    const failureSummary = {};
+    const failureDetails = [];
+    const preferredSender = getPreferredSender();
+    const fallbackSender = process.env.SMTP_USER || preferredSender;
     const frontendBaseUrl = getFrontendBaseUrl();
     const schedulingUrl = `${frontendBaseUrl}/schedule/${encodeURIComponent(String(id))}`;
     const cfg = config.rows[0];
@@ -652,6 +684,7 @@ const sendSchedulingEmails = async (req, res) => {
       if (!student.email) {
         failed++;
         failures.push('missing-email');
+        failureSummary['missing-email'] = (failureSummary['missing-email'] || 0) + 1;
         console.warn(`Skipping student ${student.id} because email is missing`);
         continue;
       }
@@ -763,12 +796,31 @@ const sendSchedulingEmails = async (req, res) => {
 </html>`;
 
       try {
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM || '"ID Card Unit" <noreply@university.edu>',
-          to: student.email,
-          subject: `[Action Required] Book Your ID Card Appointment — ${cfg.title}`,
-          html
-        });
+        try {
+          await transporter.sendMail({
+            from: preferredSender,
+            to: student.email,
+            subject: `[Action Required] Book Your ID Card Appointment — ${cfg.title}`,
+            html
+          });
+        } catch (sendError) {
+          const shouldRetryWithFallback =
+            fallbackSender &&
+            fallbackSender !== preferredSender &&
+            isSenderRejectedError(sendError);
+
+          if (!shouldRetryWithFallback) {
+            throw sendError;
+          }
+
+          console.warn(`Retrying ${student.email} with SMTP_USER as sender due to sender rejection`);
+          await transporter.sendMail({
+            from: fallbackSender,
+            to: student.email,
+            subject: `[Action Required] Book Your ID Card Appointment — ${cfg.title}`,
+            html
+          });
+        }
 
         try {
           await pool.query(
@@ -785,6 +837,11 @@ const sendSchedulingEmails = async (req, res) => {
       } catch (err) {
         failed++;
         failures.push(student.email);
+        const reason = err?.code || String(err?.responseCode || 'send-failed');
+        failureSummary[reason] = (failureSummary[reason] || 0) + 1;
+        if (failureDetails.length < 5) {
+          failureDetails.push(`${student.email}: ${reason} ${err.message || ''}`.trim());
+        }
         console.error(`Failed to send email to ${student.email}:`, err.message);
       }
     }
@@ -806,7 +863,9 @@ const sendSchedulingEmails = async (req, res) => {
       success: true,
       message,
       sent,
-      failed
+      failed,
+      failureSummary,
+      failureDetails: failureDetails.length > 0 ? failureDetails : undefined
     });
   } catch (error) {
     console.error('Error sending emails:', error);
