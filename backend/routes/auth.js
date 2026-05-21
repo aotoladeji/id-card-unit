@@ -10,7 +10,7 @@ router.use(async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Error ensuring auth schema:', error);
-    res.status(500).json({ message: 'Error initializing authentication schema' });
+    res.status(503).json({ message: 'Authentication service unavailable' });
   }
 });
 

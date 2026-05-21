@@ -3,6 +3,20 @@ const pool = require('../config/database');
 let bootstrapPromise = null;
 let authSchemaReady = false;
 
+const hasTable = async (tableName) => {
+  const result = await pool.query('SELECT to_regclass($1) AS table_ref', [`public.${tableName}`]);
+  return Boolean(result.rows[0]?.table_ref);
+};
+
+const getUsersColumns = async () => {
+  const result = await pool.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'users'
+  `);
+  return new Set(result.rows.map((row) => row.column_name));
+};
+
 const ensureUsersTable = async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -64,9 +78,28 @@ const ensureAuthSchema = async () => {
 
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
-      await ensureUsersTable();
-      await ensureUsersColumns();
-      await ensureActivityLogsTable();
+      const usersTableExists = await hasTable('users');
+      const activityLogsExists = await hasTable('activity_logs');
+
+      if (!usersTableExists || !activityLogsExists) {
+        console.log('Auth schema missing core tables; applying auth bootstrap DDL');
+        await ensureUsersTable();
+        await ensureActivityLogsTable();
+      }
+
+      const usersColumns = usersTableExists ? await getUsersColumns() : null;
+      const missingUsersColumns = usersColumns
+        ? !usersColumns.has('permissions') ||
+          !usersColumns.has('must_change_password') ||
+          !usersColumns.has('created_at') ||
+          !usersColumns.has('updated_at')
+        : true;
+
+      if (missingUsersColumns) {
+        console.log('Auth schema missing users columns; applying users table backfill');
+        await ensureUsersColumns();
+      }
+
       await ensureDefaultAdmin();
       authSchemaReady = true;
     })().finally(() => {
