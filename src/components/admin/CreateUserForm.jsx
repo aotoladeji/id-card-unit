@@ -9,6 +9,7 @@ export default function CreateUserForm({ role, onSubmit, onClose }) {
     confirmPassword: ''
   });
   const [permissions, setPermissions] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const availablePermissions = [
@@ -39,7 +40,10 @@ export default function CreateUserForm({ role, onSubmit, onClose }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
+
     setError('');
+    setLoading(true);
 
     // Validation
     if (formData.password !== formData.confirmPassword) {
@@ -84,6 +88,8 @@ export default function CreateUserForm({ role, onSubmit, onClose }) {
       }
     } catch (err) {
       setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -185,8 +191,8 @@ export default function CreateUserForm({ role, onSubmit, onClose }) {
         </div>
       )}
       
-      <button type="submit" className="btn btn-primary" style={{width: '100%', marginTop: '1rem'}}>
-        Create Account
+      <button type="submit" className="btn btn-primary" style={{width: '100%', marginTop: '1rem'}} disabled={loading}>
+        {loading ? 'Creating...' : 'Create Account'}
       </button>
     </form>
   );

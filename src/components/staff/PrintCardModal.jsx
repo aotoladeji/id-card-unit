@@ -220,6 +220,7 @@ img { display: block; width: 85.6mm; height: 53.98mm; object-fit: fill; }
                 value="browser"
                 checked={printMethod === 'browser'}
                 onChange={(e) => setPrintMethod(e.target.value)}
+                disabled={printing}
                 style={{ marginTop: '2px' }}
               />
               <div>
@@ -249,6 +250,7 @@ img { display: block; width: 85.6mm; height: 53.98mm; object-fit: fill; }
                 value="pdf"
                 checked={printMethod === 'pdf'}
                 onChange={(e) => setPrintMethod(e.target.value)}
+                disabled={printing}
                 style={{ marginTop: '2px' }}
               />
               <div>
@@ -278,6 +280,7 @@ img { display: block; width: 85.6mm; height: 53.98mm; object-fit: fill; }
                 value="direct"
                 checked={printMethod === 'direct'}
                 onChange={(e) => setPrintMethod(e.target.value)}
+                disabled={printing}
                 style={{ marginTop: '2px' }}
               />
               <div>

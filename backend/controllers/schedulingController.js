@@ -47,15 +47,65 @@ const formatDateOrTbd = (value) => {
   return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+const normalizeExcelHeader = (header) => {
+  return String(header || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+};
+
+const normalizeExcelRow = (row = {}) => {
+  const normalized = {};
+
+  for (const [key, value] of Object.entries(row)) {
+    const normalizedKey = normalizeExcelHeader(key);
+    if (!normalizedKey) continue;
+
+    // Keep first non-empty value if the same logical header appears more than once.
+    if (normalized[normalizedKey] === undefined || normalized[normalizedKey] === null || normalized[normalizedKey] === '') {
+      normalized[normalizedKey] = value;
+    }
+  }
+
+  return normalized;
+};
+
+const getExcelValue = (row = {}, aliases = []) => {
+  for (const alias of aliases) {
+    const value = row[normalizeExcelHeader(alias)];
+    if (value === undefined || value === null) continue;
+    const trimmed = String(value).trim();
+    if (trimmed !== '') return trimmed;
+  }
+
+  return null;
+};
+
+const getStudentEmail = (student = {}) => {
+  return getExcelValue(student, ['email', 'e_mail', 'email_address', 'mail']);
+};
+
+const getStudentPhone = (student = {}) => {
+  return getExcelValue(student, ['phone', 'phone_number', 'mobile', 'mobile_number', 'gsm']);
+};
+
+const getStudentFullName = (student = {}) => {
+  const direct = getExcelValue(student, ['full_name', 'fullname', 'name']);
+  if (direct) return direct;
+
+  const surname = getExcelValue(student, ['surname', 'last_name']) || '';
+  const otherNames = getExcelValue(student, ['other_names', 'other_name', 'first_name', 'othernames']) || '';
+  const combined = `${surname} ${otherNames}`.trim();
+  return combined || 'Unknown Student';
+};
+
 const extractMatricNumber = (student = {}) => {
-  return (
-    student.matric_number ||
-    student.matric_no ||
-    student.matricNumber ||
-    student.MATRIC_NUMBER ||
-    student.MATRIC_NO ||
-    null
-  );
+  return getExcelValue(student, [
+    'matric_number',
+    'matric_no',
+    'matricnumber',
+    'matric'
+  ]);
 };
 
 const getPreferredSender = () => {
@@ -405,7 +455,7 @@ const reopenWithNewBatch = async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const students = XLSX.utils.sheet_to_json(worksheet);
+    const students = XLSX.utils.sheet_to_json(worksheet).map(normalizeExcelRow);
 
     if (students.length === 0) {
       await client.query('ROLLBACK');
@@ -428,11 +478,8 @@ const reopenWithNewBatch = async (req, res) => {
           if (existing.rows.length === 0) isUnique = true;
         }
 
-        let fullName = student.full_name || student.name || student.fullName;
-        if (!fullName && (student.surname || student.other_names)) {
-          fullName = `${(student.surname || '').trim()} ${(student.other_names || student.otherNames || '').trim()}`.trim();
-        }
-        if (!fullName) fullName = 'Unknown Student';
+        const fullName = getStudentFullName(student);
+        const studentEmail = getStudentEmail(student);
 
         await client.query(
           `INSERT INTO scheduled_students
@@ -443,17 +490,17 @@ const reopenWithNewBatch = async (req, res) => {
             id,
             extractMatricNumber(student),
             fullName,
-            student.email,
-            student.phone || null,
-            student.faculty || null,
-            student.department || null,
-            student.level || null,
+            studentEmail,
+            getStudentPhone(student),
+            getExcelValue(student, ['faculty']),
+            getExcelValue(student, ['department']),
+            getExcelValue(student, ['level']),
             loginCode
           ]
         );
         imported++;
       } catch (err) {
-        errors.push({ student: student.email, error: err.message });
+        errors.push({ student: getStudentEmail(student) || 'unknown-email', error: err.message });
       }
     }
 
@@ -493,7 +540,7 @@ const uploadStudentList = async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const students = XLSX.utils.sheet_to_json(worksheet);
+    const students = XLSX.utils.sheet_to_json(worksheet).map(normalizeExcelRow);
 
     if (students.length === 0) {
       return res.status(400).json({ message: 'Excel file is empty or invalid format' });
@@ -520,20 +567,8 @@ const uploadStudentList = async (req, res) => {
           }
         }
         
-        // Build full name from available fields
-        let fullName = student.full_name || student.name || student.fullName;
-        
-        // If no full_name field, try to construct from surname and other_names
-        if (!fullName && (student.surname || student.other_names)) {
-          const surname = (student.surname || '').trim();
-          const otherNames = (student.other_names || student.otherNames || student.other_name || '').trim();
-          fullName = `${surname} ${otherNames}`.trim();
-        }
-        
-        // Final fallback
-        if (!fullName) {
-          fullName = 'Unknown Student';
-        }
+        const fullName = getStudentFullName(student);
+        const studentEmail = getStudentEmail(student);
         
         await pool.query(
           `INSERT INTO scheduled_students 
@@ -544,17 +579,17 @@ const uploadStudentList = async (req, res) => {
             id,
             extractMatricNumber(student),
             fullName,
-            student.email,
-            student.phone || null,
-            student.faculty || null,
-            student.department || null,
-            student.level || null,
+            studentEmail,
+            getStudentPhone(student),
+            getExcelValue(student, ['faculty']),
+            getExcelValue(student, ['department']),
+            getExcelValue(student, ['level']),
             loginCode
           ]
         );
         imported++;
       } catch (err) {
-        errors.push({ student: student.email, error: err.message });
+        errors.push({ student: getStudentEmail(student) || 'unknown-email', error: err.message });
       }
     }
 
