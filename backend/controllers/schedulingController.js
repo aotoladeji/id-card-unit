@@ -40,6 +40,13 @@ const getFrontendBaseUrl = () => {
   return 'http://localhost:3001';
 };
 
+const formatDateOrTbd = (value) => {
+  if (!value) return 'TBD';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'TBD';
+  return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
 // Email transporter setup
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -581,7 +588,10 @@ const getTimeSlots = async (req, res) => {
 const sendSchedulingEmails = async (req, res) => {
   try {
     const { id } = req.params;
-    const resend = req.query.resend === 'true';
+
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(400).json({ message: 'SMTP credentials are not configured' });
+    }
 
     const config = await pool.query(
       'SELECT * FROM scheduling_config WHERE id = $1',
@@ -593,10 +603,17 @@ const sendSchedulingEmails = async (req, res) => {
     }
 
     // Always send to all students (test phase — no email_sent filter)
-    await pool.query(
-      'UPDATE scheduled_students SET email_sent = false WHERE config_id = $1',
-      [id]
-    );
+    try {
+      await pool.query(
+        'UPDATE scheduled_students SET email_sent = false WHERE config_id = $1',
+        [id]
+      );
+    } catch (resetError) {
+      if (resetError.code !== '42703') {
+        throw resetError;
+      }
+      console.warn('scheduled_students.email_sent column not found; continuing without reset');
+    }
 
     const students = await pool.query(
       'SELECT * FROM scheduled_students WHERE config_id = $1',
@@ -619,8 +636,8 @@ const sendSchedulingEmails = async (req, res) => {
     const frontendBaseUrl = getFrontendBaseUrl();
     const schedulingUrl = `${frontendBaseUrl}/schedule/${encodeURIComponent(String(id))}`;
     const cfg = config.rows[0];
-    const endDateStr = cfg.end_date ? new Date(cfg.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'TBD';
-    const startDateStr = cfg.start_date ? new Date(cfg.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'TBD';
+    const endDateStr = formatDateOrTbd(cfg.end_date);
+    const startDateStr = formatDateOrTbd(cfg.start_date);
     const location = cfg.location || 'ID Card Unit, University of Ibadan';
 
     // Build important message bullets
@@ -632,6 +649,13 @@ const sendSchedulingEmails = async (req, res) => {
       .join('');
 
     for (const student of students.rows) {
+      if (!student.email) {
+        failed++;
+        failures.push('missing-email');
+        console.warn(`Skipping student ${student.id} because email is missing`);
+        continue;
+      }
+
       const studentId = student.jamb_number || student.pg_reg_number || '—';
       const html = `<!DOCTYPE html>
 <html lang="en">
@@ -746,10 +770,17 @@ const sendSchedulingEmails = async (req, res) => {
           html
         });
 
-        await pool.query(
-          'UPDATE scheduled_students SET email_sent = true WHERE id = $1',
-          [student.id]
-        );
+        try {
+          await pool.query(
+            'UPDATE scheduled_students SET email_sent = true WHERE id = $1',
+            [student.id]
+          );
+        } catch (markSentError) {
+          if (markSentError.code !== '42703') {
+            throw markSentError;
+          }
+          console.warn('scheduled_students.email_sent column not found; skipping sent marker update');
+        }
         sent++;
       } catch (err) {
         failed++;
@@ -758,10 +789,14 @@ const sendSchedulingEmails = async (req, res) => {
       }
     }
 
-    await pool.query(
-      'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
-      [req.user.id, 'EMAILS_SENT', `Sent ${sent}/${totalPending} scheduling emails for config ID: ${id}${failed ? ` (${failed} failed)` : ''}`]
-    );
+    try {
+      await pool.query(
+        'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
+        [req.user.id, 'EMAILS_SENT', `Sent ${sent}/${totalPending} scheduling emails for config ID: ${id}${failed ? ` (${failed} failed)` : ''}`]
+      );
+    } catch (logError) {
+      console.warn('Non-fatal scheduling email log error:', logError.message);
+    }
 
     const message = failed > 0
       ? `Sent ${sent} of ${totalPending} emails. ${failed} failed (${failures.slice(0, 3).join(', ')}${failures.length > 3 ? '...' : ''}).`
