@@ -334,7 +334,6 @@ router.post('/book', async (req, res) => {
     let emailErrorMessage = null;
 
     if (student.email && process.env.SMTP_USER && process.env.SMTP_PASS) {
-      const captureAppUrl = getCaptureAppBaseUrl();
       try {
         await transporter.sendMail({
           from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -346,7 +345,7 @@ router.post('/book', async (req, res) => {
             <p><strong>Matric Number:</strong> ${student.matric_number || 'N/A'}</p>
             <p><strong>Appointment Date:</strong> ${new Date(slot.rows[0].slot_date).toLocaleDateString()}</p>
             <p><strong>Appointment Time:</strong> ${String(slot.rows[0].slot_time).substring(0, 5)}</p>
-            <p><strong>Capture App URL:</strong> <a href="${captureAppUrl}">${captureAppUrl}</a></p>
+            <p><strong>Venue:</strong> McAurthur Building UI</p>
             <p><strong>Capture App Login Code:</strong> <span style="font-size:20px;letter-spacing:3px;color:#003399;">${captureLoginCode}</span></p>
             <p>Please keep this code safe. It is unique to your booking and required for login on the capture app.</p>
           `,
