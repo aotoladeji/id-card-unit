@@ -460,7 +460,7 @@ function ReopenScheduleForm({ config, onSuccess, onCancel }) {
           required
         />
         <small style={{ color: 'var(--text-dim)', marginTop: '0.5rem', display: 'block' }}>
-          Required columns: <strong>full_name</strong>, <strong>email</strong>, and either <strong>jamb_number</strong> or <strong>pg_reg_number</strong>
+          Required columns: <strong>full_name</strong>, <strong>email</strong>, <strong>matric_number</strong>
         </small>
       </div>
 
@@ -695,7 +695,7 @@ Dress appropriately for your ID photo`
           required
         />
         <small style={{ color: 'var(--text-dim)', marginTop: '0.5rem', display: 'block' }}>
-          Required columns: <strong>full_name</strong>, <strong>email</strong>, and either <strong>jamb_number</strong> or <strong>pg_reg_number</strong>
+          Required columns: <strong>full_name</strong>, <strong>email</strong>, <strong>matric_number</strong>
           <br />
           Optional: faculty, department, level, phone
         </small>
@@ -728,7 +728,7 @@ function SchedulingDetails({ details, user, onUpdate }) {
     try {
       const payload = insertForm.useExisting
         ? { existingStudentId: insertForm.useExisting, slotId: insertModal.id, configId: details.config.id }
-        : { fullName: insertForm.fullName, email: insertForm.email, studentId: insertForm.studentId, slotId: insertModal.id, configId: details.config.id };
+        : { fullName: insertForm.fullName, email: insertForm.email, matricNumber: insertForm.studentId, slotId: insertModal.id, configId: details.config.id };
 
       const response = await fetch(`/api/scheduling/${details.config.id}/manual-book`, {
         method: 'POST',
@@ -810,7 +810,7 @@ function SchedulingDetails({ details, user, onUpdate }) {
               <thead>
                 <tr>
                   <th>Full Name</th>
-                  <th>Student ID</th>
+                  <th>Matric Number</th>
                   <th>Email</th>
                   <th>Login Code</th>
                   <th>Scheduled</th>
@@ -821,7 +821,7 @@ function SchedulingDetails({ details, user, onUpdate }) {
                 {details.students?.map(student => (
                   <tr key={student.id}>
                     <td>{student.full_name}</td>
-                    <td>{student.jamb_number || student.pg_reg_number}</td>
+                    <td>{student.matric_number || '—'}</td>
                     <td>{student.email}</td>
                     <td><code>{student.login_code}</code></td>
                     <td>
@@ -921,7 +921,7 @@ function SchedulingDetails({ details, user, onUpdate }) {
                     <option value="">— Add new student instead —</option>
                     {unscheduledStudents.map(s => (
                       <option key={s.id} value={s.id}>
-                        {s.full_name} ({s.jamb_number || s.pg_reg_number || s.email})
+                        {s.full_name} ({s.matric_number || s.email})
                       </option>
                     ))}
                   </select>
@@ -949,7 +949,7 @@ function SchedulingDetails({ details, user, onUpdate }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label>JAMB / PG Reg Number</label>
+                    <label>Matric Number</label>
                     <input type="text" className="form-control"
                       value={insertForm.studentId}
                       onChange={(e) => setInsertForm({ ...insertForm, studentId: e.target.value })}

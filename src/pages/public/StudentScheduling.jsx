@@ -207,13 +207,13 @@ export default function StudentScheduling() {
                   fontWeight: '600',
                   fontSize: '0.95rem'
                 }}>
-                  Student ID (JAMB Number or PG Reg Number)
+                  Matric Number
                 </label>
                 <input
                   type="text"
                   value={studentId}
                   onChange={(e) => setStudentId(e.target.value)}
-                  placeholder="e.g., 12345678 or PG/2024/001"
+                  placeholder="e.g., UI/2023/1234"
                   required
                   style={{
                     width: '100%',

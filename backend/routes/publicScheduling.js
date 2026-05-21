@@ -6,8 +6,10 @@ const pool = require('../config/database');
 router.post('/login', async (req, res) => {
   try {
     const { configId, studentId, loginCode } = req.body;
+    const normalizedStudentId = String(studentId || '').trim();
+    const normalizedLoginCode = String(loginCode || '').trim();
 
-    if (!configId || !studentId || !loginCode) {
+    if (!configId || !normalizedStudentId || !normalizedLoginCode) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
@@ -25,17 +27,19 @@ router.post('/login', async (req, res) => {
     const studentResult = await pool.query(
       `SELECT * FROM scheduled_students 
        WHERE config_id = $1 
-       AND (jamb_number = $2 OR pg_reg_number = $2)
+       AND LOWER(TRIM(COALESCE(matric_number, ''))) = LOWER($2)
        AND login_code = $3`,
-      [configId, studentId, loginCode]
+      [configId, normalizedStudentId, normalizedLoginCode]
     );
 
     if (studentResult.rows.length === 0) {
       // Check if code was already used (student exists but code is null/different)
       const usedCheck = await pool.query(
         `SELECT has_scheduled FROM scheduled_students
-         WHERE config_id = $1 AND (jamb_number = $2 OR pg_reg_number = $2) AND login_code IS NULL`,
-        [configId, studentId]
+         WHERE config_id = $1
+           AND LOWER(TRIM(COALESCE(matric_number, ''))) = LOWER($2)
+           AND login_code IS NULL`,
+        [configId, normalizedStudentId]
       );
       if (usedCheck.rows.length > 0) {
         return res.status(401).json({ message: 'Your login code has already been used. Appointment is already booked.' });

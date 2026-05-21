@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS scheduled_students (
     full_name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     phone VARCHAR(50),
+    matric_number VARCHAR(50),
     jamb_number VARCHAR(50),
     pg_reg_number VARCHAR(50),
     faculty VARCHAR(255),
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS appointments (
 
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_scheduled_students_config_id ON scheduled_students(config_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_students_matric ON scheduled_students(matric_number);
 CREATE INDEX IF NOT EXISTS idx_scheduled_students_jamb ON scheduled_students(jamb_number);
 CREATE INDEX IF NOT EXISTS idx_scheduled_students_pg_reg ON scheduled_students(pg_reg_number);
 CREATE INDEX IF NOT EXISTS idx_time_slots_config_id ON time_slots(config_id);
@@ -95,8 +97,13 @@ ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS location TEXT;
 ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS important_message TEXT;
 
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS matric_number VARCHAR(50);
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;
 ALTER TABLE scheduled_students ALTER COLUMN login_code DROP NOT NULL;
+
+UPDATE scheduled_students
+SET matric_number = COALESCE(NULLIF(matric_number, ''), NULLIF(jamb_number, ''), NULLIF(pg_reg_number, ''))
+WHERE COALESCE(NULLIF(matric_number, ''), NULLIF(jamb_number, ''), NULLIF(pg_reg_number, '')) IS NOT NULL;
 
 ALTER TABLE appointments ALTER COLUMN status SET DEFAULT 'scheduled';
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS notes TEXT;

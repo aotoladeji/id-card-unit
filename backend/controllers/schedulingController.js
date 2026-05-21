@@ -47,6 +47,17 @@ const formatDateOrTbd = (value) => {
   return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+const extractMatricNumber = (student = {}) => {
+  return (
+    student.matric_number ||
+    student.matric_no ||
+    student.matricNumber ||
+    student.MATRIC_NUMBER ||
+    student.MATRIC_NO ||
+    null
+  );
+};
+
 const getPreferredSender = () => {
   return process.env.SMTP_FROM || process.env.SMTP_USER || '"ID Card Unit" <noreply@university.edu>';
 };
@@ -425,13 +436,12 @@ const reopenWithNewBatch = async (req, res) => {
 
         await client.query(
           `INSERT INTO scheduled_students
-           (config_id, jamb_number, pg_reg_number, full_name, email, phone,
+           (config_id, matric_number, full_name, email, phone,
             faculty, department, level, login_code)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             id,
-            student.jamb_number || student.JAMB || null,
-            student.pg_reg_number || student.PG_REG || null,
+            extractMatricNumber(student),
             fullName,
             student.email,
             student.phone || null,
@@ -527,13 +537,12 @@ const uploadStudentList = async (req, res) => {
         
         await pool.query(
           `INSERT INTO scheduled_students 
-           (config_id, jamb_number, pg_reg_number, full_name, email, phone, 
+           (config_id, matric_number, full_name, email, phone, 
             faculty, department, level, login_code)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             id,
-            student.jamb_number || student.JAMB || null,
-            student.pg_reg_number || student.PG_REG || null,
+            extractMatricNumber(student),
             fullName,
             student.email,
             student.phone || null,
@@ -706,7 +715,7 @@ const sendSchedulingEmails = async (req, res) => {
         continue;
       }
 
-      const studentId = student.jamb_number || student.pg_reg_number || '—';
+      const studentId = student.matric_number || '—';
       const html = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -980,7 +989,7 @@ const manualBookStudent = async (req, res) => {
   const client = await pool.connect();
   try {
     const { id: configId } = req.params;
-    const { existingStudentId, slotId, fullName, email, studentId: jambOrPg } = req.body;
+    const { existingStudentId, slotId, fullName, email, matricNumber } = req.body;
 
     if (!slotId) {
       return res.status(400).json({ message: 'slotId is required' });
@@ -1037,9 +1046,9 @@ const manualBookStudent = async (req, res) => {
       }
 
       const newStudent = await client.query(
-        `INSERT INTO scheduled_students (config_id, full_name, email, jamb_number, login_code)
+        `INSERT INTO scheduled_students (config_id, full_name, email, matric_number, login_code)
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [configId, fullName, email, jambOrPg || null, loginCode]
+        [configId, fullName, email, matricNumber || null, loginCode]
       );
       studentRow = newStudent.rows[0];
     }
