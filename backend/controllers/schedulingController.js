@@ -51,7 +51,91 @@ const normalizeExcelHeader = (header) => {
   return String(header || '')
     .trim()
     .toLowerCase()
-    .replace(/[\s-]+/g, '_');
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+};
+
+const STUDENT_HEADER_ALIASES = {
+  full_name: ['full_name', 'fullname', 'full_names', 'name', 'student_name'],
+  email: ['email', 'e_mail', 'email_address', 'mail'],
+  matric_number: ['matric_number', 'matric_no', 'matric', 'matricnumber', 'mat_no'],
+  phone: ['phone', 'phone_number', 'mobile', 'mobile_number', 'gsm'],
+  faculty: ['faculty'],
+  department: ['department', 'dept'],
+  level: ['level', 'class_level'],
+  surname: ['surname', 'last_name', 'lastname'],
+  other_names: ['other_names', 'other_name', 'first_name', 'othernames']
+};
+
+const getCanonicalStudentHeader = (header) => {
+  const normalized = normalizeExcelHeader(header);
+  if (!normalized) return '';
+
+  for (const [canonical, aliases] of Object.entries(STUDENT_HEADER_ALIASES)) {
+    if (aliases.includes(normalized)) return canonical;
+  }
+
+  return normalized;
+};
+
+const parseStudentsFromWorksheet = (worksheet) => {
+  const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const scanLimit = Math.min(rows.length, 15);
+  let bestHeaderIndex = 0;
+  let bestScore = -1;
+
+  for (let i = 0; i < scanLimit; i++) {
+    const row = Array.isArray(rows[i]) ? rows[i] : [];
+    const keys = new Set();
+    let score = 0;
+
+    for (const cell of row) {
+      const canonical = getCanonicalStudentHeader(cell);
+      if (!canonical || keys.has(canonical)) continue;
+      keys.add(canonical);
+      if (Object.prototype.hasOwnProperty.call(STUDENT_HEADER_ALIASES, canonical)) {
+        score += 1;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestHeaderIndex = i;
+    }
+  }
+
+  const headerRow = Array.isArray(rows[bestHeaderIndex]) ? rows[bestHeaderIndex] : [];
+  const headers = headerRow.map((cell, idx) => {
+    const canonical = getCanonicalStudentHeader(cell);
+    return canonical || `column_${idx + 1}`;
+  });
+
+  const students = [];
+  for (let i = bestHeaderIndex + 1; i < rows.length; i++) {
+    const row = Array.isArray(rows[i]) ? rows[i] : [];
+    const student = {};
+    let hasValue = false;
+
+    for (let col = 0; col < headers.length; col++) {
+      const header = headers[col];
+      const rawValue = row[col];
+      const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        hasValue = true;
+      }
+
+      student[header] = value;
+    }
+
+    if (hasValue) {
+      students.push(normalizeExcelRow(student));
+    }
+  }
+
+  return students;
 };
 
 const normalizeExcelRow = (row = {}) => {
@@ -455,7 +539,7 @@ const reopenWithNewBatch = async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const students = XLSX.utils.sheet_to_json(worksheet).map(normalizeExcelRow);
+    const students = parseStudentsFromWorksheet(worksheet);
 
     if (students.length === 0) {
       await client.query('ROLLBACK');
@@ -540,7 +624,7 @@ const uploadStudentList = async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const students = XLSX.utils.sheet_to_json(worksheet).map(normalizeExcelRow);
+    const students = parseStudentsFromWorksheet(worksheet);
 
     if (students.length === 0) {
       return res.status(400).json({ message: 'Excel file is empty or invalid format' });
