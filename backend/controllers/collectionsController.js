@@ -8,18 +8,15 @@ const getCollections = async (req, res) => {
     
     let query = `
       SELECT cc.*,
-             COALESCE(cc.faculty, ac.faculty) AS faculty,
-             COALESCE(cc.department, ac.department) AS department,
-             COALESCE(cc.card_number, ac.card_number) AS card_number,
-             u.name as collected_by_name
-      FROM card_collections cc
-      LEFT JOIN approved_cards ac ON ac.card_id = cc.card_id
-      LEFT JOIN users u ON cc.collected_by = u.id
-      WHERE 1=1
-    `;
-    
-    const params = [];
-    let paramCount = 0;
+            COALESCE(NULLIF(cc.surname, ''), ac.surname) AS surname,
+            COALESCE(NULLIF(cc.other_names, ''), ac.other_names) AS other_names,
+            COALESCE(NULLIF(cc.matric_no, ''), ac.matric_no) AS matric_no,
+            COALESCE(NULLIF(cc.staff_id, ''), ac.staff_id) AS staff_id,
+            COALESCE(NULLIF(cc.faculty, ''), ac.faculty) AS faculty,
+            COALESCE(NULLIF(cc.department, ''), ac.department) AS department,
+            COALESCE(NULLIF(cc.card_number, ''), ac.card_number) AS card_number,
+             ac.level,
+             ac.session,
 
     if (status) {
       paramCount++;
@@ -104,13 +101,15 @@ const verifyAndCollect = async (req, res) => {
 
     // Get collection record to find the card_id
     const collectionResult = await pool.query(
-      `SELECT cc.*,
-              COALESCE(cc.faculty, ac.faculty) AS faculty,
-              COALESCE(cc.department, ac.department) AS department,
-              COALESCE(cc.card_number, ac.card_number) AS card_number
-       FROM card_collections cc
-       LEFT JOIN approved_cards ac ON ac.card_id = cc.card_id
-       WHERE cc.id = $1`,
+            `SELECT cc.*,
+              COALESCE(NULLIF(cc.faculty, ''), ac.faculty) AS faculty,
+              COALESCE(NULLIF(cc.department, ''), ac.department) AS department,
+              COALESCE(NULLIF(cc.card_number, ''), ac.card_number) AS card_number,
+              ac.level,
+              ac.session
+             FROM card_collections cc
+             LEFT JOIN approved_cards ac ON ac.card_id = cc.card_id
+             WHERE cc.id = $1`,
       [id]
     );
 

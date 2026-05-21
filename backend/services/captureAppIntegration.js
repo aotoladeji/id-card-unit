@@ -4,6 +4,20 @@ const pool = require('../config/database');
 // URL of the capture app API
 const CAPTURE_APP_URL = process.env.CAPTURE_APP_URL || 'http://localhost:5001';
 
+const toNullableText = (value) => {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+};
+
+const firstNonEmpty = (...values) => {
+  for (const value of values) {
+    const normalized = toNullableText(value);
+    if (normalized !== null) return normalized;
+  }
+  return null;
+};
+
 const normalizeFingerprint = (value) => {
   if (!value || typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -155,35 +169,92 @@ const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates 
   };
 };
 
-const extractCardIdentity = (card) => ({
-  id: card.id ?? card.card_id ?? card.cardId,
-  surname: card.surname ?? card.last_name ?? '',
-  other_names: card.other_names ?? card.first_name ?? card.otherNames ?? '',
-  matric_no: card.matric_no ?? card.matricNumber ?? null,
-  staff_id: card.staff_id ?? card.staffId ?? null,
-  faculty: card.faculty ?? null,
-  department: card.department ?? null,
-  level: card.level ?? null,
-  card_number: card.card_number ?? card.cardNumber ?? null,
-  session: card.session ?? null,
-  passport_photo: card.passport_photo ?? card.photo ?? null,
-  approved_at: card.approved_at ?? card.updated_at ?? card.created_at ?? new Date()
-});
+const extractCardIdentity = (card = {}) => {
+  const academic = card.academic || card.academic_info || card.academicInfo || card.student || {};
+  const identity = card.identity || card.student_identity || card.studentIdentity || {};
+
+  return {
+    id: card.id ?? card.card_id ?? card.cardId ?? card.approved_card_id ?? card.approvedCardId,
+    surname: firstNonEmpty(
+      card.surname,
+      card.last_name,
+      card.lastName,
+      card.family_name,
+      card.familyName,
+      identity.surname,
+      identity.last_name,
+      identity.lastName
+    ),
+    other_names: firstNonEmpty(
+      card.other_names,
+      card.otherNames,
+      card.first_name,
+      card.firstName,
+      card.middle_name,
+      card.middleName,
+      card.full_name,
+      card.fullName,
+      card.name,
+      identity.other_names,
+      identity.otherNames,
+      identity.first_name,
+      identity.firstName,
+      identity.full_name,
+      identity.fullName,
+      identity.name
+    ),
+    matric_no: firstNonEmpty(
+      card.matric_no,
+      card.matricNumber,
+      card.matric_number,
+      identity.matric_no,
+      identity.matricNumber,
+      identity.matric_number
+    ),
+    staff_id: firstNonEmpty(card.staff_id, card.staffId, identity.staff_id, identity.staffId),
+    faculty: firstNonEmpty(card.faculty, card.school, card.college, academic.faculty, academic.school, academic.college),
+    department: firstNonEmpty(card.department, card.dept, academic.department, academic.dept, academic.programme, academic.program),
+    level: firstNonEmpty(card.level, card.class_level, academic.level, academic.class_level),
+    card_number: firstNonEmpty(card.card_number, card.cardNumber, card.id_number, card.idNumber, identity.card_number, identity.cardNumber),
+    session: firstNonEmpty(card.session, card.academic_session, card.session_name, academic.session, academic.academic_session),
+    passport_photo: card.passport_photo ?? card.passportPhoto ?? card.photo ?? card.passport ?? null,
+    approved_at: card.approved_at ?? card.updated_at ?? card.created_at ?? new Date()
+  };
+};
 
 const mergeCardIdentity = (primary = {}, fallback = {}) => ({
   id: primary.id ?? fallback.id ?? fallback.card_id ?? fallback.cardId,
-  surname: primary.surname || fallback.surname || fallback.last_name || '',
-  other_names: primary.other_names || fallback.other_names || fallback.first_name || fallback.otherNames || '',
-  matric_no: primary.matric_no || fallback.matric_no || fallback.matricNumber || null,
-  staff_id: primary.staff_id || fallback.staff_id || fallback.staffId || null,
-  faculty: primary.faculty || fallback.faculty || null,
-  department: primary.department || fallback.department || null,
-  level: primary.level || fallback.level || null,
-  card_number: primary.card_number || fallback.card_number || fallback.cardNumber || null,
-  session: primary.session || fallback.session || null,
+  surname: firstNonEmpty(primary.surname, fallback.surname, fallback.last_name, fallback.lastName),
+  other_names: firstNonEmpty(primary.other_names, fallback.other_names, fallback.first_name, fallback.firstName, fallback.otherNames, fallback.full_name, fallback.fullName, fallback.name),
+  matric_no: firstNonEmpty(primary.matric_no, fallback.matric_no, fallback.matricNumber, fallback.matric_number),
+  staff_id: firstNonEmpty(primary.staff_id, fallback.staff_id, fallback.staffId),
+  faculty: firstNonEmpty(primary.faculty, fallback.faculty),
+  department: firstNonEmpty(primary.department, fallback.department),
+  level: firstNonEmpty(primary.level, fallback.level),
+  card_number: firstNonEmpty(primary.card_number, fallback.card_number, fallback.cardNumber),
+  session: firstNonEmpty(primary.session, fallback.session, fallback.academic_session),
   passport_photo: primary.passport_photo || fallback.passport_photo || fallback.photo || null,
   approved_at: primary.approved_at || fallback.approved_at || fallback.updated_at || fallback.created_at || new Date()
 });
+
+const buildMetadataLookupKeys = (card = {}) => {
+  const keys = [
+    card.id,
+    card.card_id,
+    card.cardId,
+    card.matric_no,
+    card.matric_number,
+    card.matricNumber,
+    card.staff_id,
+    card.staffId,
+    card.card_number,
+    card.cardNumber
+  ]
+    .map((value) => toNullableText(value))
+    .filter(Boolean);
+
+  return [...new Set(keys.map((value) => String(value)))];
+};
 
 const fetchApprovedMetadataMap = async () => {
   try {
@@ -196,12 +267,15 @@ const fetchApprovedMetadataMap = async () => {
     }
 
     const approvedCards = response.data.cards || response.data.approved || [];
-    return new Map(
-      approvedCards
-        .map(extractCardIdentity)
-        .filter((card) => card.id !== undefined && card.id !== null)
-        .map((card) => [String(card.id), card])
-    );
+    const map = new Map();
+    approvedCards
+      .map(extractCardIdentity)
+      .forEach((card) => {
+        const keys = buildMetadataLookupKeys(card);
+        keys.forEach((key) => map.set(key, card));
+      });
+
+    return map;
   } catch (error) {
     console.warn('⚠️ Unable to fetch approved metadata from capture app:', error.message);
     return new Map();
@@ -262,8 +336,11 @@ const syncApprovedCards = async () => {
     const approvedCards = queueCards
       .map((queueCard) => {
         const queueIdentity = extractCardIdentity(queueCard);
-        const approvedIdentity = approvedMetadataMap.get(String(queueIdentity.id));
-        return mergeCardIdentity(queueIdentity, approvedIdentity);
+        const lookupKeys = buildMetadataLookupKeys(queueIdentity);
+        const approvedIdentity = lookupKeys
+          .map((key) => approvedMetadataMap.get(key))
+          .find(Boolean);
+        return mergeCardIdentity(queueIdentity, approvedIdentity || {});
       })
       .filter((card) => card.id !== undefined && card.id !== null)
       .filter((card) => {
@@ -322,16 +399,16 @@ const syncApprovedCards = async () => {
         } else {
           await pool.query(
             `UPDATE approved_cards
-             SET surname = COALESCE(surname, $2),
-                 other_names = COALESCE(other_names, $3),
-                 matric_no = COALESCE(matric_no, $4),
-                 staff_id = COALESCE(staff_id, $5),
-                 faculty = COALESCE(faculty, $6),
-                 department = COALESCE(department, $7),
-                 level = COALESCE(level, $8),
-                 card_number = COALESCE(card_number, $9),
-                 session = COALESCE(session, $10),
-                 passport_photo = COALESCE(passport_photo, $11),
+             SET surname = COALESCE(NULLIF($2, ''), NULLIF(surname, ''), surname),
+                 other_names = COALESCE(NULLIF($3, ''), NULLIF(other_names, ''), other_names),
+                 matric_no = COALESCE(NULLIF($4, ''), NULLIF(matric_no, ''), matric_no),
+                 staff_id = COALESCE(NULLIF($5, ''), NULLIF(staff_id, ''), staff_id),
+                 faculty = COALESCE(NULLIF($6, ''), NULLIF(faculty, ''), faculty),
+                 department = COALESCE(NULLIF($7, ''), NULLIF(department, ''), department),
+                 level = COALESCE(NULLIF($8, ''), NULLIF(level, ''), level),
+                 card_number = COALESCE(NULLIF($9, ''), NULLIF(card_number, ''), card_number),
+                 session = COALESCE(NULLIF($10, ''), NULLIF(session, ''), session),
+                 passport_photo = COALESCE($11, passport_photo),
                  updated_at = CURRENT_TIMESTAMP,
                  synced_from_capture_app_at = CURRENT_TIMESTAMP
              WHERE card_id = $1`,
@@ -373,9 +450,9 @@ const syncApprovedCards = async () => {
         if (collectionCheck.rows.length > 0) {
           await pool.query(
             `UPDATE card_collections
-             SET faculty = COALESCE(faculty, $2),
-                 department = COALESCE(department, $3),
-                 card_number = COALESCE(card_number, $4),
+             SET faculty = COALESCE(NULLIF($2, ''), NULLIF(faculty, ''), faculty),
+               department = COALESCE(NULLIF($3, ''), NULLIF(department, ''), department),
+               card_number = COALESCE(NULLIF($4, ''), NULLIF(card_number, ''), card_number),
                  updated_at = CURRENT_TIMESTAMP
              WHERE card_id = $1`,
             [card.id, card.faculty, card.department, card.card_number]
@@ -393,7 +470,7 @@ const syncApprovedCards = async () => {
         if (historyPrintCheck.rows.length > 0) {
           await pool.query(
             `UPDATE print_history
-             SET card_number = COALESCE(card_number, $2)
+             SET card_number = COALESCE(NULLIF($2, ''), NULLIF(card_number, ''), card_number)
              WHERE card_id = $1`,
             [card.id, card.card_number]
           );
@@ -411,16 +488,24 @@ const syncApprovedCards = async () => {
         if (queueCheck.rows.length > 0) {
           await pool.query(
             `UPDATE print_queue
-             SET faculty = COALESCE(faculty, $2),
-                 department = COALESCE(department, $3),
-                 level = COALESCE(level, $4),
-                 card_number = COALESCE(card_number, $5),
-                 session = COALESCE(session, $6),
-                 passport_photo = COALESCE(passport_photo, $7),
+             SET surname = COALESCE(NULLIF($2, ''), NULLIF(surname, ''), surname),
+               other_names = COALESCE(NULLIF($3, ''), NULLIF(other_names, ''), other_names),
+               matric_no = COALESCE(NULLIF($4, ''), NULLIF(matric_no, ''), matric_no),
+               staff_id = COALESCE(NULLIF($5, ''), NULLIF(staff_id, ''), staff_id),
+               faculty = COALESCE(NULLIF($6, ''), NULLIF(faculty, ''), faculty),
+               department = COALESCE(NULLIF($7, ''), NULLIF(department, ''), department),
+               level = COALESCE(NULLIF($8, ''), NULLIF(level, ''), level),
+               card_number = COALESCE(NULLIF($9, ''), NULLIF(card_number, ''), card_number),
+               session = COALESCE(NULLIF($10, ''), NULLIF(session, ''), session),
+               passport_photo = COALESCE($11, passport_photo),
                  updated_at = CURRENT_TIMESTAMP
              WHERE card_id = $1`,
             [
               card.id,
+              card.surname,
+              card.other_names,
+              card.matric_no,
+              card.staff_id,
               card.faculty,
               card.department,
               card.level,

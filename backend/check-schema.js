@@ -2,7 +2,7 @@ const pool = require('./config/database');
 
 async function check() {
   try {
-    const tables = ['approved_cards', 'print_queue', 'id_cards'];
+    const tables = ['approved_cards', 'print_queue', 'print_queue_exclusions', 'print_history', 'card_collections', 'id_cards'];
     
     for (const table of tables) {
       const result = await pool.query(

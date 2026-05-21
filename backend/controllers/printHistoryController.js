@@ -6,8 +6,19 @@ const getPrintHistory = async (req, res) => {
     const { search, startDate, endDate, page = 1, limit = 50 } = req.query;
     
     let query = `
-      SELECT ph.*, u.name as printed_by_name
+      SELECT ph.*,
+             COALESCE(NULLIF(ph.surname, ''), ac.surname) AS surname,
+             COALESCE(NULLIF(ph.other_names, ''), ac.other_names) AS other_names,
+             COALESCE(NULLIF(ph.matric_no, ''), ac.matric_no) AS matric_no,
+             COALESCE(NULLIF(ph.staff_id, ''), ac.staff_id) AS staff_id,
+             COALESCE(NULLIF(ph.card_number, ''), ac.card_number) AS card_number,
+             ac.faculty,
+             ac.department,
+             ac.level,
+             ac.session,
+             u.name as printed_by_name
       FROM print_history ph
+      LEFT JOIN approved_cards ac ON ac.card_id = ph.card_id
       LEFT JOIN users u ON ph.printed_by = u.id
       WHERE 1=1
     `;
@@ -42,7 +53,11 @@ const getPrintHistory = async (req, res) => {
 
     // Count total
     const countResult = await pool.query(
-      `SELECT COUNT(*) FROM (${query}) as filtered`,
+      `SELECT COUNT(*) FROM print_history ph
+       LEFT JOIN approved_cards ac ON ac.card_id = ph.card_id
+       WHERE 1=1` + (params.length
+         ? query.slice(query.indexOf('WHERE 1=1') + 'WHERE 1=1'.length)
+         : ''),
       params
     );
     const total = parseInt(countResult.rows[0].count);
@@ -76,10 +91,10 @@ const getPrintStats = async (req, res) => {
     const stats = await pool.query(`
       SELECT 
         COUNT(*) as total_printed,
-        COUNT(*) FILTER (WHERE DATE(printed_at) = CURRENT_DATE) as printed_today,
-        COUNT(*) FILTER (WHERE printed_at >= CURRENT_DATE - INTERVAL '7 days') as printed_this_week,
-        COUNT(*) FILTER (WHERE DATE_TRUNC('month', printed_at) = DATE_TRUNC('month', CURRENT_DATE)) as printed_this_month
-      FROM print_history
+        COUNT(*) FILTER (WHERE DATE(ph.printed_at) = CURRENT_DATE) as printed_today,
+        COUNT(*) FILTER (WHERE ph.printed_at >= CURRENT_DATE - INTERVAL '7 days') as printed_this_week,
+        COUNT(*) FILTER (WHERE DATE_TRUNC('month', ph.printed_at) = DATE_TRUNC('month', CURRENT_DATE)) as printed_this_month
+      FROM print_history ph
     `);
 
     res.json({

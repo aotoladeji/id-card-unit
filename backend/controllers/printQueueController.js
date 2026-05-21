@@ -41,11 +41,15 @@ const getPrintQueue = async (req, res) => {
     
     let query = `
       SELECT pq.*,
-             COALESCE(pq.faculty, ac.faculty) AS faculty,
-             COALESCE(pq.department, ac.department) AS department,
-             COALESCE(pq.level, ac.level) AS level,
-             COALESCE(pq.card_number, ac.card_number) AS card_number,
-             COALESCE(pq.session, ac.session) AS session,
+            COALESCE(NULLIF(pq.surname, ''), ac.surname) AS surname,
+            COALESCE(NULLIF(pq.other_names, ''), ac.other_names) AS other_names,
+            COALESCE(NULLIF(pq.matric_no, ''), ac.matric_no) AS matric_no,
+            COALESCE(NULLIF(pq.staff_id, ''), ac.staff_id) AS staff_id,
+            COALESCE(NULLIF(pq.faculty, ''), ac.faculty) AS faculty,
+            COALESCE(NULLIF(pq.department, ''), ac.department) AS department,
+            COALESCE(NULLIF(pq.level, ''), ac.level) AS level,
+            COALESCE(NULLIF(pq.card_number, ''), ac.card_number) AS card_number,
+            COALESCE(NULLIF(pq.session, ''), ac.session) AS session,
              u.name as printed_by_name
       FROM print_queue pq
       LEFT JOIN approved_cards ac ON ac.card_id = pq.card_id

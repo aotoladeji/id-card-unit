@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { ensureSchedulingSchema } = require('../services/schedulingSchema');
 const {
   createSchedulingConfig,
   getAllConfigs,
@@ -18,6 +19,16 @@ const { authenticateToken } = require('../middleware/auth');
 const multer = require('multer');
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+router.use(async (req, res, next) => {
+  try {
+    await ensureSchedulingSchema();
+    next();
+  } catch (error) {
+    console.error('Error ensuring scheduling schema:', error);
+    res.status(500).json({ message: 'Error initializing scheduling schema' });
+  }
+});
 
 // Helper function to check if user can manage scheduling
 const canManageScheduling = (req, res, next) => {
