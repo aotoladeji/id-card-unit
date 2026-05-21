@@ -716,10 +716,18 @@ function SchedulingDetails({ details, user, onUpdate }) {
   const [insertLoading, setInsertLoading] = useState(false);
   const [insertForm, setInsertForm] = useState({ fullName: '', email: '', studentId: '', useExisting: '' });
 
+  const getSlotNumbers = (slot) => {
+    const capacity = Number(slot?.capacity || 0);
+    const booked = Number(slot?.booked || 0);
+    const available = Math.max(capacity - booked, 0);
+    return { capacity, booked, available };
+  };
+
   const canInsert = user?.role === 'supervisor' || user?.role === 'admin' ||
     (user?.role === 'staff' && user?.permissions?.includes('scheduling'));
 
-  const availableSlots = details.slots?.filter(s => s.booked < s.capacity) || [];
+  const availableSlots = details.slots?.filter(s => getSlotNumbers(s).available > 0) || [];
+  const totalAvailableSeats = (details.slots || []).reduce((sum, slot) => sum + getSlotNumbers(slot).available, 0);
   const unscheduledStudents = details.students?.filter(s => !s.has_scheduled) || [];
 
   const handleInsert = async (e) => {
@@ -791,9 +799,9 @@ function SchedulingDetails({ details, user, onUpdate }) {
           }}
         >
           📅 Time Slots ({details.slots?.length || 0})
-          {availableSlots.length > 0 && (
+          {totalAvailableSeats > 0 && (
             <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', opacity: 0.9 }}>
-              ({availableSlots.length} free)
+              ({totalAvailableSeats} free)
             </span>
           )}
         </button>
@@ -855,19 +863,22 @@ function SchedulingDetails({ details, user, onUpdate }) {
                 <th>Time</th>
                 <th>Capacity</th>
                 <th>Booked</th>
+                <th>Available</th>
                 <th>Status</th>
                 {canInsert && <th>Action</th>}
               </tr>
             </thead>
             <tbody>
               {details.slots?.map(slot => {
-                const isFull = slot.booked >= slot.capacity;
+                const { capacity, booked, available } = getSlotNumbers(slot);
+                const isFull = available <= 0;
                 return (
                   <tr key={slot.id}>
                     <td>{new Date(slot.slot_date).toLocaleDateString()}</td>
                     <td>{slot.slot_time.substring(0, 5)}</td>
-                    <td>{slot.capacity}</td>
-                    <td>{slot.booked}</td>
+                    <td>{capacity}</td>
+                    <td>{booked}</td>
+                    <td>{available}</td>
                     <td>
                       <span className={`badge badge-${isFull ? 'danger' : 'success'}`}>
                         {isFull ? 'Full' : 'Available'}

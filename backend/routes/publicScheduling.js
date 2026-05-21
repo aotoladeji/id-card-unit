@@ -1,6 +1,98 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 const pool = require('../config/database');
+
+let captureCodeSchemaReady = false;
+let captureCodeSchemaPromise = null;
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+const getCaptureAppBaseUrl = () => {
+  const url = (process.env.CAPTURE_APP_URL || '').trim().replace(/\/+$/, '');
+  return url || 'https://id-card-platform.vercel.app';
+};
+
+const generateCaptureLoginCode = () => crypto.randomInt(100000, 999999).toString();
+
+const normalizeText = (value) => String(value || '').trim();
+
+const isCaptureApiKeyAuthorized = (req) => {
+  const expected = normalizeText(process.env.VERIFY_API_KEY);
+  if (!expected) return false;
+
+  const headerKey = normalizeText(req.get('x-api-key'));
+  const verifyHeaderKey = normalizeText(req.get('x-verify-api-key'));
+  const authHeader = normalizeText(req.get('authorization'));
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+
+  return [headerKey, verifyHeaderKey, bearerToken].some((token) => token && token === expected);
+};
+
+const ensureCaptureLoginSchema = async () => {
+  if (captureCodeSchemaReady) return;
+
+  if (!captureCodeSchemaPromise) {
+    captureCodeSchemaPromise = (async () => {
+      await pool.query('ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS capture_login_code VARCHAR(6)');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_students_capture_login_code ON scheduled_students(capture_login_code)');
+      captureCodeSchemaReady = true;
+    })().finally(() => {
+      captureCodeSchemaPromise = null;
+    });
+  }
+
+  await captureCodeSchemaPromise;
+};
+
+const getOrCreateCaptureLoginCode = async (studentId, existingCode = null) => {
+  if (existingCode) return existingCode;
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const candidateCode = generateCaptureLoginCode();
+
+    try {
+      const updateResult = await pool.query(
+        `UPDATE scheduled_students
+         SET capture_login_code = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 AND capture_login_code IS NULL
+         RETURNING capture_login_code`,
+        [candidateCode, studentId]
+      );
+
+      if (updateResult.rows.length > 0) {
+        return updateResult.rows[0].capture_login_code;
+      }
+
+      const refreshResult = await pool.query(
+        'SELECT capture_login_code FROM scheduled_students WHERE id = $1 LIMIT 1',
+        [studentId]
+      );
+
+      if (refreshResult.rows.length > 0 && refreshResult.rows[0].capture_login_code) {
+        return refreshResult.rows[0].capture_login_code;
+      }
+    } catch (error) {
+      if (error.code !== '23505') {
+        throw error;
+      }
+      // Retry when random code collides with an existing unique code.
+    }
+  }
+
+  throw new Error('Unable to generate unique capture login code');
+};
 
 // Student login for scheduling
 router.post('/login', async (req, res) => {
@@ -122,6 +214,7 @@ router.post('/book', async (req, res) => {
 
   let client;
   try {
+    await ensureCaptureLoginSchema();
     client = await pool.connect();
 
     await client.query('BEGIN');
@@ -142,7 +235,7 @@ router.post('/book', async (req, res) => {
     }
 
     const studentResult = await client.query(
-      'SELECT id, config_id, has_scheduled FROM scheduled_students WHERE id = $1',
+      'SELECT id, config_id, has_scheduled, email, full_name, matric_number FROM scheduled_students WHERE id = $1',
       [parsedStudentId]
     );
 
@@ -187,6 +280,18 @@ router.post('/book', async (req, res) => {
       return res.status(400).json({ message: 'This slot is no longer available' });
     }
 
+    // Generate a unique capture app login code for this booking.
+    let captureLoginCode;
+    let isUniqueCaptureCode = false;
+    while (!isUniqueCaptureCode) {
+      captureLoginCode = generateCaptureLoginCode();
+      const existingCaptureCode = await client.query(
+        'SELECT id FROM scheduled_students WHERE capture_login_code = $1 LIMIT 1',
+        [captureLoginCode]
+      );
+      isUniqueCaptureCode = existingCaptureCode.rows.length === 0;
+    }
+
     // Create appointment
     const appointment = await client.query(
       `INSERT INTO appointments 
@@ -212,9 +317,9 @@ router.post('/book', async (req, res) => {
     const studentUpdate = await client.query(
       `UPDATE scheduled_students 
        SET has_scheduled = true, scheduled_date = $1, scheduled_time = $2,
-           login_code = NULL, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3`,
-      [slot.rows[0].slot_date, slot.rows[0].slot_time, parsedStudentId]
+           login_code = NULL, capture_login_code = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4`,
+      [slot.rows[0].slot_date, slot.rows[0].slot_time, captureLoginCode, parsedStudentId]
     );
 
     if (studentUpdate.rowCount === 0) {
@@ -224,10 +329,42 @@ router.post('/book', async (req, res) => {
 
     await client.query('COMMIT');
 
+    const student = studentResult.rows[0];
+    let emailSent = false;
+    let emailErrorMessage = null;
+
+    if (student.email && process.env.SMTP_USER && process.env.SMTP_PASS) {
+      const captureAppUrl = getCaptureAppBaseUrl();
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: student.email,
+          subject: 'Booking Confirmed - Your Capture App Login Code',
+          html: `
+            <p>Dear <strong>${student.full_name || 'Student'}</strong>,</p>
+            <p>Your ID card capture booking has been confirmed successfully.</p>
+            <p><strong>Matric Number:</strong> ${student.matric_number || 'N/A'}</p>
+            <p><strong>Appointment Date:</strong> ${new Date(slot.rows[0].slot_date).toLocaleDateString()}</p>
+            <p><strong>Appointment Time:</strong> ${String(slot.rows[0].slot_time).substring(0, 5)}</p>
+            <p><strong>Capture App URL:</strong> <a href="${captureAppUrl}">${captureAppUrl}</a></p>
+            <p><strong>Capture App Login Code:</strong> <span style="font-size:20px;letter-spacing:3px;color:#003399;">${captureLoginCode}</span></p>
+            <p>Please keep this code safe. It is unique to your booking and required for login on the capture app.</p>
+          `,
+        });
+        emailSent = true;
+      } catch (mailError) {
+        emailErrorMessage = mailError.message;
+        console.error('Failed to send booking confirmation email:', mailError.message);
+      }
+    }
+
     res.json({
       success: true,
       message: 'Appointment booked successfully',
-      appointment: appointment.rows[0]
+      appointment: appointment.rows[0],
+      captureLoginCode,
+      confirmationEmailSent: emailSent,
+      confirmationEmailError: emailErrorMessage,
     });
   } catch (error) {
     if (client) {
@@ -267,6 +404,56 @@ router.post('/book', async (req, res) => {
   }
 });
 
+// Capture app helper: fetch generated capture login code by matric number.
+// Protected with VERIFY_API_KEY.
+router.get('/capture-login-code/:matricNumber', async (req, res) => {
+  try {
+    if (!isCaptureApiKeyAuthorized(req)) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    await ensureCaptureLoginSchema();
+
+    const matricNumber = normalizeText(req.params.matricNumber);
+    if (!matricNumber) {
+      return res.status(400).json({ success: false, message: 'Matric number is required' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, full_name, matric_number, capture_login_code, scheduled_date, scheduled_time, config_id
+       FROM scheduled_students
+       WHERE has_scheduled = true
+         AND LOWER(TRIM(COALESCE(matric_number, ''))) = LOWER($1)
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [matricNumber]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'No booked student found for this matric number' });
+    }
+
+    const student = result.rows[0];
+    const captureLoginCode = await getOrCreateCaptureLoginCode(student.id, student.capture_login_code);
+
+    return res.json({
+      success: true,
+      student: {
+        id: student.id,
+        fullName: student.full_name,
+        matricNumber: student.matric_number,
+        configId: student.config_id,
+        scheduledDate: student.scheduled_date,
+        scheduledTime: student.scheduled_time,
+      },
+      captureLoginCode,
+    });
+  } catch (error) {
+    console.error('Error fetching capture login code:', error);
+    return res.status(500).json({ success: false, message: 'Server error fetching capture login code' });
+  }
+});
+
 // Cancel appointment
 router.post('/cancel', async (req, res) => {
   const client = await pool.connect();
@@ -298,7 +485,7 @@ router.post('/cancel', async (req, res) => {
     // Update student
     await client.query(
       `UPDATE scheduled_students 
-       SET has_scheduled = false, scheduled_date = NULL, scheduled_time = NULL
+       SET has_scheduled = false, scheduled_date = NULL, scheduled_time = NULL, capture_login_code = NULL
        WHERE id = $1`,
       [studentId]
     );

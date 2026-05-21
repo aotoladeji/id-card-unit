@@ -96,7 +96,13 @@ export default function StudentScheduling() {
       
       if (response.ok) {
         setStep('confirmation');
-        setStudent({ ...student, appointment: data.appointment });
+        setStudent({
+          ...student,
+          appointment: data.appointment,
+          captureLoginCode: data.captureLoginCode,
+          confirmationEmailSent: data.confirmationEmailSent,
+          confirmationEmailError: data.confirmationEmailError
+        });
       } else {
         setError(data.message);
       }
@@ -509,7 +515,37 @@ export default function StudentScheduling() {
                     {config?.location || 'ID Card Unit, MIS Department'}
                   </strong>
                 </div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'rgba(59,130,246,0.12)',
+                  border: '1px solid rgba(59,130,246,0.35)',
+                  borderRadius: '10px',
+                  padding: '0.75rem 0.9rem'
+                }}>
+                  <span style={{ color: '#93c5fd', fontSize: '0.95rem' }}>Capture App Login Code:</span>
+                  <strong style={{ color: '#dbeafe', fontSize: '1.2rem', letterSpacing: '0.18em' }}>
+                    {student?.captureLoginCode || 'N/A'}
+                  </strong>
+                </div>
               </div>
+            </div>
+
+            <div style={{
+              background: student?.confirmationEmailSent ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+              border: student?.confirmationEmailSent
+                ? '1px solid rgba(16,185,129,0.35)'
+                : '1px solid rgba(245,158,11,0.35)',
+              borderRadius: '10px',
+              padding: '0.85rem 1rem',
+              marginBottom: '1.25rem',
+              color: student?.confirmationEmailSent ? '#6ee7b7' : '#fcd34d',
+              fontSize: '0.92rem'
+            }}>
+              {student?.confirmationEmailSent
+                ? 'A booking confirmation email with your capture app login code has been sent.'
+                : 'Email confirmation could not be delivered right now. Please keep the capture app login code shown above.'}
             </div>
 
             <div style={{

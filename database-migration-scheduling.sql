@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS scheduled_students (
     department VARCHAR(255),
     level VARCHAR(50),
     login_code VARCHAR(6),
+    capture_login_code VARCHAR(6),
     email_sent BOOLEAN DEFAULT FALSE,
     has_scheduled BOOLEAN DEFAULT FALSE,
     scheduled_date DATE,
@@ -83,6 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_students_config_id ON scheduled_student
 CREATE INDEX IF NOT EXISTS idx_scheduled_students_matric ON scheduled_students(matric_number);
 CREATE INDEX IF NOT EXISTS idx_scheduled_students_jamb ON scheduled_students(jamb_number);
 CREATE INDEX IF NOT EXISTS idx_scheduled_students_pg_reg ON scheduled_students(pg_reg_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_students_capture_login_code ON scheduled_students(capture_login_code);
 CREATE INDEX IF NOT EXISTS idx_time_slots_config_id ON time_slots(config_id);
 CREATE INDEX IF NOT EXISTS idx_time_slots_date ON time_slots(slot_date);
 CREATE INDEX IF NOT EXISTS idx_appointments_config_id ON appointments(config_id);
@@ -99,6 +101,7 @@ ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS important_message TEXT;
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS matric_number VARCHAR(50);
 ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS capture_login_code VARCHAR(6);
 ALTER TABLE scheduled_students ALTER COLUMN login_code DROP NOT NULL;
 
 UPDATE scheduled_students
