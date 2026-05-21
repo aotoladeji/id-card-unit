@@ -15,12 +15,21 @@ const getCollections = async (req, res) => {
             COALESCE(NULLIF(cc.faculty, ''), ac.faculty) AS faculty,
             COALESCE(NULLIF(cc.department, ''), ac.department) AS department,
             COALESCE(NULLIF(cc.card_number, ''), ac.card_number) AS card_number,
-             ac.level,
-             ac.session,
+            COALESCE(NULLIF(cc.level, ''), ac.level) AS level,
+            COALESCE(NULLIF(cc.session, ''), ac.session) AS session,
+            u.name as printed_by_name
+      FROM card_collections cc
+      LEFT JOIN approved_cards ac ON ac.card_id = cc.card_id
+      LEFT JOIN users u ON cc.printed_by = u.id
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let paramCount = 0;
 
     if (status) {
       paramCount++;
-      query += ' AND cc.status = $' + paramCount;
+      query += ` AND cc.status = $${paramCount}`;
       params.push(status);
     }
 
