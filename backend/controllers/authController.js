@@ -39,7 +39,12 @@ const login = async (req, res) => {
     }
 
     if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
-      passwordMatch = await bcrypt.compare(password, storedPassword);
+      try {
+        passwordMatch = await bcrypt.compare(password, storedPassword);
+      } catch (compareError) {
+        console.warn('Invalid bcrypt hash format for user:', user.username, compareError.message);
+        passwordMatch = false;
+      }
     } else {
       // Backward compatibility for legacy records that may have plain-text passwords.
       passwordMatch = password === storedPassword;
