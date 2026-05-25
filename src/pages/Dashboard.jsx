@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import '../styles/dashboard.css';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import UserProfile from './UserProfile';
@@ -47,6 +47,7 @@ import Collections from './staff/Collections';
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('overview');
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -177,6 +178,18 @@ const renderContent = () => {
 };
   const tabs = useMemo(() => getTabs(), [user]);
   const searchQuery = searchParams.toString();
+  const routeContext = useMemo(() => {
+    if (location.pathname.startsWith('/admin')) {
+      return { label: 'Admin Workspace', path: '/admin' };
+    }
+    if (location.pathname.startsWith('/supervisor')) {
+      return { label: 'Supervisor Workspace', path: '/supervisor' };
+    }
+    if (location.pathname.startsWith('/staff')) {
+      return { label: 'Staff Workspace', path: '/staff' };
+    }
+    return { label: 'Dashboard', path: location.pathname || '/' };
+  }, [location.pathname]);
 
   useEffect(() => {
     const urlTab = searchParams.get('tab');
@@ -231,7 +244,19 @@ const renderContent = () => {
             </button>
           )}
           <img src={itmsLogo} alt="IT@MS University of Ibadan Logo" className="header-logo" />
-          <h1>MIS ID Card System</h1>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <h1 style={{ margin: 0 }}>MIS ID Card System</h1>
+            <span
+              style={{
+                color: 'var(--text-dim)',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                letterSpacing: '0.02em'
+              }}
+            >
+              {routeContext.label} ({routeContext.path})
+            </span>
+          </div>
         </div>
        
         <div className="user-info">
