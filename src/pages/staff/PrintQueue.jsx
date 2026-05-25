@@ -113,31 +113,28 @@ export default function PrintQueue() {
     }
   };
 
-  const handleSinglePrint = async (card) => {
-    console.log('Single print clicked for card:', card.id);
+  const printCard = (card) => {
+    setSelectedCard(card);
+  };
+
+  const handlePrintComplete = async () => {
+    showNotification('Card printed successfully and moved to collection log!', 'success');
+    setSelectedCard(null);
+    await fetchQueue();
+  };
+
+  const handleModalPrint = async (card) => {
     setPrinting(prev => ({ ...prev, [card.id]: true }));
-    
+
     try {
       await printCardDirect(card);
-      showNotification('Card printed successfully and moved to collection log!', 'success');
-      // Refresh the queue to remove the printed card
-      await fetchQueue();
+      await handlePrintComplete();
     } catch (error) {
       console.error('Print error:', error);
       showNotification('Error printing card: ' + error.message, 'error');
     } finally {
       setPrinting(prev => ({ ...prev, [card.id]: false }));
     }
-  };
-
-  const printCard = (card) => {
-    setSelectedCard(card);
-  };
-
-  const handlePrintComplete = () => {
-    showNotification('Card printed successfully!', 'success');
-    setSelectedCard(null);
-    fetchQueue();
   };
 
   const toggleSelectCard = (cardId) => {
@@ -245,42 +242,32 @@ export default function PrintQueue() {
 
   const printCardDirect = async (card) => {
     try {
-      console.log('🖨️ Fetching card image for card ID:', card.card_id);
-      
-      // Fetch the generated card image through our backend proxy (avoids CORS)
-      const response = await fetch(`/api/card-images/${card.card_id}/image`, {
+      console.log('🖨️ Fetching card SVG for card ID:', card.card_id);
+
+      const response = await fetch(`/api/card-images/${card.card_id}/svg`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
 
       if (!response.ok) {
-        let errorMessage = 'Failed to fetch card from capture app';
+        let errorMessage = 'Failed to fetch card SVG from capture app';
         try {
           const error = await response.json();
           errorMessage = error.message || errorMessage;
         } catch (e) {
           errorMessage = `Server returned ${response.status}: ${response.statusText}`;
         }
-        console.error('❌ Error fetching card image:', errorMessage);
+        console.error('❌ Error fetching card SVG:', errorMessage);
         throw new Error(errorMessage);
       }
 
-      const blob = await response.blob();
-      console.log('✅ Card image fetched successfully');
-      console.log('   Size:', blob.size, 'bytes');
-      console.log('   Type:', blob.type);
-      
-      if (blob.size === 0) {
-        console.error('❌ Image blob is empty!');
-        throw new Error('Image blob is empty - check if card ID is valid');
-      }
+      const svgText = await response.text();
+      console.log('✅ Card SVG fetched successfully');
+      console.log('   Length:', svgText.length, 'chars');
 
-      const imageUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Failed to convert image to data URL'));
-        reader.readAsDataURL(blob);
-      });
-      console.log('✅ Data URL created for direct card print');
+      if (!svgText || !svgText.includes('<svg')) {
+        console.error('❌ SVG payload is invalid or empty');
+        throw new Error('SVG payload is empty - check if card ID is valid');
+      }
 
       await new Promise((resolve, reject) => {
         const iframe = document.createElement('iframe');
@@ -306,22 +293,23 @@ export default function PrintQueue() {
         doc.write(`<!DOCTYPE html>
 <html>
 <head>
-  <title>Print ID Card</title>
+  <title>Print ID Card SVG</title>
   <style>
     @page { size: 85.6mm 53.98mm; margin: 0; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 85.6mm; height: 53.98mm; overflow: hidden; background: #fff; }
     body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    img { display: block; width: 85.6mm; height: 53.98mm; object-fit: fill; }
+    .svg-wrapper { width: 85.6mm; height: 53.98mm; background: #fff; overflow: hidden; }
+    .svg-wrapper svg { width: 100%; height: 100%; display: block; }
   </style>
 </head>
 <body>
-  <img src="${imageUrl}" alt="ID Card" id="cardImage" />
+  <div class="svg-wrapper" id="cardSvg">${svgText}</div>
 </body>
 </html>`);
         doc.close();
 
-        const printImage = doc.getElementById('cardImage');
+        const printElement = doc.getElementById('cardSvg');
         let handled = false;
 
         const finish = (callback) => {
@@ -341,12 +329,11 @@ export default function PrintQueue() {
           }
         };
 
-        if (printImage) {
-          printImage.onload = () => setTimeout(triggerPrint, 100);
-          printImage.onerror = () => setTimeout(triggerPrint, 100);
+        if (printElement) {
+          setTimeout(triggerPrint, 150);
+        } else {
+          setTimeout(triggerPrint, 400);
         }
-
-        setTimeout(triggerPrint, 1200);
       });
 
       // Mark as printed in both systems
@@ -385,7 +372,7 @@ export default function PrintQueue() {
       if (error.message.includes('Capture app is not available')) {
         throw new Error('Capture app is offline or unreachable. Please verify CAPTURE_APP_URL and deployment status.');
       } else if (error.message.includes('not found')) {
-        throw new Error('Card output not found yet. The capture app may still be generating the printable SVG.');
+        throw new Error('Card SVG not found yet. The capture app may still be generating the printable SVG.');
       }
 
       throw error;
@@ -770,7 +757,7 @@ export default function PrintQueue() {
                           <>
                             <button
                               className="btn btn-success btn-sm"
-                              onClick={() => handleSinglePrint(card)}
+                              onClick={() => printCard(card)}
                               disabled={printing[card.id]}
                             >
                               {printing[card.id] ? '⏳' : '🖨️ Print'}
@@ -827,7 +814,8 @@ export default function PrintQueue() {
         <PrintCardModal
           card={selectedCard}
           onClose={() => setSelectedCard(null)}
-          onPrintComplete={handlePrintComplete}
+          onPrint={handleModalPrint}
+          printing={Boolean(printing[selectedCard.id])}
         />
       )}
 

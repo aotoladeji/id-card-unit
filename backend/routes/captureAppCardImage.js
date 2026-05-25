@@ -169,6 +169,57 @@ const fetchSvgFromOutputEndpoint = async (cardId) => {
   return Buffer.from(svgText, 'utf8');
 };
 
+const fetchSvgWithResolution = async (cardId) => {
+  try {
+    const directSvg = await fetchSvgFromOutputEndpoint(cardId);
+    if (directSvg) {
+      return directSvg;
+    }
+  } catch (error) {
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      throw error;
+    }
+    if (error.response?.status !== 404) {
+      console.log(`Direct SVG fetch failed for ${cardId}: ${error.message}`);
+    }
+  }
+
+  try {
+    const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
+      timeout: 10000
+    });
+
+    const approvedCards = approvedResponse.data?.cards || [];
+    const matchedCard = approvedCards.find((card) =>
+      String(card.id) === String(cardId) ||
+      String(card.card_id || '') === String(cardId) ||
+      String(card.user_id || '') === String(cardId) ||
+      String(card.userId || '') === String(cardId)
+    );
+
+    if (!matchedCard) return null;
+
+    const idCandidates = buildIdCandidates(cardId, matchedCard);
+    for (const candidate of idCandidates) {
+      try {
+        const candidateSvg = await fetchSvgFromOutputEndpoint(candidate);
+        if (candidateSvg) {
+          console.log(`✅ Successfully fetched card SVG with candidate ID: ${candidate}`);
+          return candidateSvg;
+        }
+      } catch (candidateError) {
+        if (candidateError.code === 'ECONNREFUSED' || candidateError.code === 'ETIMEDOUT') {
+          throw candidateError;
+        }
+      }
+    }
+  } catch (lookupError) {
+    console.log(`Approved-card lookup failed while resolving SVG ID ${cardId}: ${lookupError.message}`);
+  }
+
+  return null;
+};
+
 const buildIdCandidates = (requestedId, approvedCard) => {
   const candidates = [requestedId];
 
@@ -247,6 +298,37 @@ const sendCardAsset = (res, payload, contentType) => {
   res.set('Expires', '0');
   return res.send(payload);
 };
+
+router.get('/:cardId/svg', async (req, res) => {
+  try {
+    const { cardId } = req.params;
+    console.log(`Fetching card SVG for ID: ${cardId}`);
+
+    const svgBuffer = await fetchSvgWithResolution(cardId);
+    if (!svgBuffer) {
+      return res.status(404).json({
+        success: false,
+        message: `Card SVG not found for ID ${cardId}. The capture app may still be generating it.`
+      });
+    }
+
+    return sendCardAsset(res, svgBuffer, 'image/svg+xml; charset=utf-8');
+  } catch (error) {
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      return res.status(503).json({
+        success: false,
+        message: `Capture app is not available at ${CAPTURE_APP_URL}.`
+      });
+    }
+
+    console.error('❌ Error fetching card SVG:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching card SVG',
+      error: error.message
+    });
+  }
+});
 
 // Get card image - uses capture app's direct PNG endpoint
 router.get('/:cardId/image', async (req, res) => {
