@@ -46,7 +46,8 @@ export const AuthProvider = ({ children }) => {
 
       return { 
         success: true, 
-        mustChangePassword: mustChangePassword 
+        mustChangePassword: mustChangePassword,
+        user: userData
       };
     } catch (error) {
       return {

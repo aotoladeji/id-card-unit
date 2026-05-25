@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import '../styles/dashboard.css';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import UserProfile from './UserProfile';
@@ -47,6 +47,7 @@ import Collections from './staff/Collections';
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('overview');
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [sidebarMode, setSidebarMode] = useState(
@@ -141,7 +142,7 @@ const renderContent = () => {
       case 'logs': return <SystemLogs />;
       case 'analytics': return <Analytics />;
       case 'reports': return <AllReports />;
-      default: return null;
+      default: return <Overview user={user} onNavigate={setActiveTab} />;
     }
   }
 
@@ -157,7 +158,7 @@ const renderContent = () => {
       case 'staff': return <StaffManagement />;
       case 'collections': return <Collections />;
       case 'print-history': return <PrintHistory />;
-      default: return null;
+      default: return <SupervisorOverview user={user} onNavigate={setActiveTab} />;
     }
   }
 
@@ -171,10 +172,49 @@ const renderContent = () => {
     case 'collection': return <Collections />;
     case 'approval': return <CardApproval />;
     case 'print-queue': return <PrintQueue />;
-    default: return null;
+    default: return <StaffOverview user={user} />;
   }
 };
-  const tabs = getTabs();
+  const tabs = useMemo(() => getTabs(), [user]);
+  const searchQuery = searchParams.toString();
+
+  useEffect(() => {
+    const urlTab = searchParams.get('tab');
+    if (urlTab && tabs.some((tab) => tab.id === urlTab) && urlTab !== activeTab) {
+      setActiveTab(urlTab);
+      return;
+    }
+
+    if (!urlTab && activeTab !== 'overview') {
+      const requestedTab = tabs.find((tab) => tab.id === activeTab);
+      if (!requestedTab) {
+        setActiveTab(tabs[0]?.id || 'overview');
+      }
+    }
+  }, [activeTab, searchQuery, searchParams, tabs]);
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(tabs[0]?.id || 'overview');
+      return;
+    }
+
+    const currentTab = searchParams.get('tab');
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (activeTab === 'overview') {
+      if (currentTab) {
+        nextParams.delete('tab');
+        setSearchParams(nextParams, { replace: true });
+      }
+      return;
+    }
+
+    if (currentTab !== activeTab) {
+      nextParams.set('tab', activeTab);
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [activeTab, searchQuery, searchParams, setSearchParams, tabs]);
 
   return (
     <div className={`dashboard-container${sidebarMode ? ' sidebar-mode' : ''}`}>

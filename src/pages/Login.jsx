@@ -5,6 +5,12 @@ import ChangePasswordModal from '../components/ChangePasswordModal';
 import uiLogo from '../assets/ui-logo.png';
 import '../styles/login.css';
 
+const getRoleHomePath = (role) => {
+  if (role === 'admin') return '/admin';
+  if (role === 'supervisor') return '/supervisor';
+  return '/staff';
+};
+
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -32,7 +38,7 @@ export default function Login() {
       if (result.mustChangePassword) {
         setShowChangePassword(true);
       } else {
-        navigate('/dashboard');
+        navigate(getRoleHomePath(result.user?.role), { replace: true });
       }
     } else {
       setError(result.message);
@@ -43,7 +49,8 @@ export default function Login() {
 
   const handlePasswordChanged = () => {
     setShowChangePassword(false);
-    navigate('/dashboard');
+    const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    navigate(getRoleHomePath(savedUser?.role), { replace: true });
   };
 
   return (
