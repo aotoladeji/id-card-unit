@@ -8,6 +8,41 @@ const generateLoginCode = () => {
   return crypto.randomInt(100000, 999999).toString();
 };
 
+let captureCodeSchemaReady = false;
+let captureCodeSchemaPromise = null;
+
+const ensureCaptureLoginSchema = async () => {
+  if (captureCodeSchemaReady) return;
+
+  if (!captureCodeSchemaPromise) {
+    captureCodeSchemaPromise = (async () => {
+      await pool.query('ALTER TABLE scheduled_students ADD COLUMN IF NOT EXISTS capture_login_code VARCHAR(6)');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_students_capture_login_code ON scheduled_students(capture_login_code)');
+      captureCodeSchemaReady = true;
+    })().finally(() => {
+      captureCodeSchemaPromise = null;
+    });
+  }
+
+  await captureCodeSchemaPromise;
+};
+
+const generateUniqueCaptureLoginCode = async (client) => {
+  let captureLoginCode;
+  let isUnique = false;
+
+  while (!isUnique) {
+    captureLoginCode = generateLoginCode();
+    const existing = await client.query(
+      'SELECT id FROM scheduled_students WHERE capture_login_code = $1 LIMIT 1',
+      [captureLoginCode]
+    );
+    isUnique = existing.rows.length === 0;
+  }
+
+  return captureLoginCode;
+};
+
 const normalizeBaseUrl = (value) => {
   if (!value) return '';
 
@@ -217,6 +252,69 @@ const isDailySendLimitError = (error) => {
     combined.includes('5.4.5') ||
     (combined.includes('gmail') && combined.includes('sending limit'))
   );
+};
+
+const sendManualBookingConfirmationEmail = async ({
+  student,
+  slot,
+  configTitle,
+  captureLoginCode,
+  location,
+  fallbackMatricNumber,
+}) => {
+  if (!student?.email || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    return {
+      sent: false,
+      error: !student?.email
+        ? 'Student email is missing'
+        : 'SMTP credentials are not configured',
+    };
+  }
+
+  const preferredSender = getPreferredSender();
+  const fallbackSender = process.env.SMTP_USER || preferredSender;
+
+  const html = `
+    <p>Dear <strong>${student.full_name || 'Student'}</strong>,</p>
+    <p>Your ID card capture booking has been confirmed successfully.</p>
+    <p><strong>Matric Number:</strong> ${student.matric_number || fallbackMatricNumber || 'N/A'}</p>
+    <p><strong>Appointment Date:</strong> ${new Date(slot.slot_date).toLocaleDateString()}</p>
+    <p><strong>Appointment Time:</strong> ${String(slot.slot_time).substring(0, 5)}</p>
+    <p><strong>Venue:</strong> ${location || 'McAurthur Building UI'}</p>
+    <p><strong>Capture App Login Code:</strong> <span style="font-size:20px;letter-spacing:3px;color:#003399;">${captureLoginCode}</span></p>
+    <p>Please keep this code safe. It is required to login on the capture app.</p>
+  `;
+
+  try {
+    try {
+      await transporter.sendMail({
+        from: preferredSender,
+        to: student.email,
+        subject: `Booking Confirmed - Your Capture App Login Code (${configTitle || 'ID Card Scheduling'})`,
+        html,
+      });
+    } catch (sendError) {
+      const shouldRetryWithFallback =
+        fallbackSender &&
+        fallbackSender !== preferredSender &&
+        isSenderRejectedError(sendError);
+
+      if (!shouldRetryWithFallback) {
+        throw sendError;
+      }
+
+      await transporter.sendMail({
+        from: fallbackSender,
+        to: student.email,
+        subject: `Booking Confirmed - Your Capture App Login Code (${configTitle || 'ID Card Scheduling'})`,
+        html,
+      });
+    }
+
+    return { sent: true, error: null };
+  } catch (error) {
+    return { sent: false, error: error.message || 'Failed to send confirmation email' };
+  }
 };
 
 // Email transporter setup
@@ -1114,7 +1212,21 @@ const manualBookStudent = async (req, res) => {
       return res.status(400).json({ message: 'slotId is required' });
     }
 
+    await ensureCaptureLoginSchema();
+
     await client.query('BEGIN');
+
+    const configResult = await client.query(
+      'SELECT title, location FROM scheduling_config WHERE id = $1',
+      [configId]
+    );
+
+    if (configResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Scheduling configuration not found' });
+    }
+
+    const config = configResult.rows[0];
 
     // Verify slot exists and has space
     const slotResult = await client.query(
@@ -1172,6 +1284,8 @@ const manualBookStudent = async (req, res) => {
       studentRow = newStudent.rows[0];
     }
 
+    const captureLoginCode = await generateUniqueCaptureLoginCode(client);
+
     // Book the slot
     await client.query(
       `INSERT INTO appointments (config_id, student_id, slot_id, appointment_date, appointment_time)
@@ -1186,9 +1300,14 @@ const manualBookStudent = async (req, res) => {
 
     await client.query(
       `UPDATE scheduled_students
-       SET has_scheduled = true, scheduled_date = $1, scheduled_time = $2, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3`,
-      [slot.slot_date, slot.slot_time, studentRow.id]
+       SET has_scheduled = true,
+           scheduled_date = $1,
+           scheduled_time = $2,
+           login_code = NULL,
+           capture_login_code = $3,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4`,
+      [slot.slot_date, slot.slot_time, captureLoginCode, studentRow.id]
     );
 
     await client.query(
@@ -1198,9 +1317,21 @@ const manualBookStudent = async (req, res) => {
 
     await client.query('COMMIT');
 
+    const emailResult = await sendManualBookingConfirmationEmail({
+      student: studentRow,
+      slot,
+      configTitle: config.title,
+      captureLoginCode,
+      location: config.location,
+      fallbackMatricNumber: matricNumber,
+    });
+
     res.json({
       success: true,
-      message: `${studentRow.full_name} has been scheduled for ${new Date(slot.slot_date).toLocaleDateString()} at ${slot.slot_time.substring(0, 5)}`
+      message: `${studentRow.full_name} has been scheduled for ${new Date(slot.slot_date).toLocaleDateString()} at ${slot.slot_time.substring(0, 5)}`,
+      captureLoginCode,
+      confirmationEmailSent: emailResult.sent,
+      confirmationEmailError: emailResult.error,
     });
   } catch (error) {
     await client.query('ROLLBACK');
