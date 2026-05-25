@@ -72,7 +72,7 @@ export default function PrintCardModal({ card, onClose, onPrint, printing = fals
   };
 
   return (
-    <Modal onClose={onClose} title="🖨️ Print ID Card">
+    <Modal isOpen={true} onClose={onClose} title="🖨️ Print ID Card">
       <div style={{ padding: '1rem' }}>
         <div style={{ marginBottom: '1.5rem' }}>
           <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--text)' }}>
