@@ -779,21 +779,35 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
     }
 
     // Capture app matcher is the source of truth.
-    // Try multiple scan candidates: scanned templates, scanned images, AND stored templates
-    // Including stored templates gives the matcher data in the format it expects
+    // Prefer scanner-provided template payloads first (same matcher-compatible family
+    // as stored templates). Only use stored templates as fallback when scanner payloads
+    // do not include usable template/image values.
     const scanImage = normalizeFingerprint(options.scannedFingerprintImage);
     const scannedTemplates = extractScannedTemplateCandidates(scanPayload);
     const imageCandidates = extractImageCandidates(scanPayload);
-    
-    const matcherScanCandidates = [
-      ...scannedTemplates,        // Templates from Windows scanner (if any)
-      ...storedTemplateCandidates, // Stored template bytes (in proper format)
-      ...imageCandidates,          // Images from Windows scanner
+
+    const scannerCandidates = [
+      ...scannedTemplates,
+      scanned,
+      ...imageCandidates,
       scanImage,
-      scanned
+    ].filter((value) => value !== undefined && value !== null && String(value).trim() !== '');
+
+    const uniqueScannerCandidates = [...new Set(scannerCandidates.map((value) => String(value).trim()))];
+    const fallbackStoredTemplates = uniqueScannerCandidates.length > 0
+      ? []
+      : storedTemplateCandidates;
+
+    const matcherScanCandidates = [
+      ...uniqueScannerCandidates,
+      ...fallbackStoredTemplates,
     ];
 
-    console.log(`[Fingerprint] Attempting verification with ${matcherScanCandidates.length} total scan candidates (${scannedTemplates.length} scanned templates + ${storedTemplateCandidates.length} stored templates + ${imageCandidates.length} images)`);
+    console.log(
+      `[Fingerprint] Attempting verification with ${matcherScanCandidates.length} scan candidates ` +
+      `(${scannedTemplates.length} scanner templates, ${imageCandidates.length} scanner images, ` +
+      `${fallbackStoredTemplates.length} stored-template fallbacks)`
+    );
 
     const matcherIdentityCandidates = [
       ...resolvedIdentityCandidates,

@@ -3,6 +3,7 @@ const router = express.Router();
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs').promises;
+const sharp = require('sharp');
 
 const CAPTURE_APP_URL = process.env.CAPTURE_APP_URL || 'http://localhost:5001';
 // Path to capture app's output directory (adjust this path as needed)
@@ -214,6 +215,30 @@ const fetchImageFromCaptureApp = async (idCandidate) => {
   return null;
 };
 
+const isLikelyFullCardRaster = async (buffer) => {
+  if (!buffer || !buffer.length) return false;
+
+  try {
+    const metadata = await sharp(buffer).metadata();
+    const width = Number(metadata.width || 0);
+    const height = Number(metadata.height || 0);
+
+    // Full card assets from capture app are wide landscape renders.
+    return width >= 300 && height >= 180;
+  } catch (error) {
+    // If metadata cannot be read, allow downstream fallback strategy to continue.
+    return false;
+  }
+};
+
+const rasterizeSvgToPng = async (svgBuffer) => {
+  if (!svgBuffer || !svgBuffer.length) return null;
+  return sharp(svgBuffer)
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+    .png()
+    .toBuffer();
+};
+
 const sendCardAsset = (res, payload, contentType) => {
   res.set('Content-Type', contentType);
   // Avoid reusing stale partial renders from proxy/browser cache.
@@ -232,12 +257,39 @@ router.get('/:cardId/image', async (req, res) => {
     // According to the API guide, the capture app provides:
     // GET /api/idcard/:userId - Returns PNG image directly
     
-    // Method 1: Official on-demand card render endpoint.
+    // Method 1: Prefer SVG output (includes full text fields) and rasterize to PNG.
+    try {
+      const svgBuffer = await fetchSvgFromOutputEndpoint(cardId);
+      if (svgBuffer) {
+        const svgAsPng = await rasterizeSvgToPng(svgBuffer);
+        if (svgAsPng && await isLikelyFullCardRaster(svgAsPng)) {
+          console.log(`✅ Successfully fetched card SVG and rasterized full card for ${cardId}`);
+          return sendCardAsset(res, svgAsPng, 'image/png');
+        }
+      }
+    } catch (error) {
+      console.error(`❌ /api/printing/output-svg failed: ${error.message}`);
+
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        return res.status(503).json({
+          success: false,
+          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
+        });
+      }
+      if (error.response?.status === 404) {
+        console.log(`ℹ️ SVG not ready/not found for card ${cardId}, trying PNG endpoints...`);
+      }
+    }
+
+    // Method 2: Official on-demand card render endpoint.
     try {
       const directImage = await fetchImageFromCaptureApp(cardId);
-      if (directImage) {
+      if (directImage && await isLikelyFullCardRaster(directImage)) {
         console.log(`✅ Successfully fetched card image with direct ID (${directImage.byteLength} bytes)`);
         return sendCardAsset(res, directImage, 'image/png');
+      }
+      if (directImage) {
+        console.warn(`⚠️ Direct ID asset for card ${cardId} looks like a partial component. Trying next source.`);
       }
     } catch (error) {
       console.error(`❌ Official endpoint failed: ${error.message}`);
@@ -250,7 +302,7 @@ router.get('/:cardId/image', async (req, res) => {
       }
     }
 
-    // Method 2: Resolve identifier mismatch and retry the official endpoint.
+    // Method 3: Resolve identifier mismatch and retry the official endpoint.
     try {
       const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
         timeout: 10000
@@ -271,9 +323,12 @@ router.get('/:cardId/image', async (req, res) => {
         for (const candidate of idCandidates) {
           try {
             const candidateImage = await fetchImageFromCaptureApp(candidate);
-            if (candidateImage) {
+            if (candidateImage && await isLikelyFullCardRaster(candidateImage)) {
               console.log(`✅ Successfully fetched card image with candidate ID: ${candidate}`);
               return sendCardAsset(res, candidateImage, 'image/png');
+            }
+            if (candidateImage) {
+              console.warn(`⚠️ Candidate ID ${candidate} returned a partial asset. Continuing resolution.`);
             }
           } catch (candidateError) {
             if (candidateError.code === 'ECONNREFUSED' || candidateError.code === 'ETIMEDOUT') {
@@ -289,33 +344,15 @@ router.get('/:cardId/image', async (req, res) => {
       console.log(`Approved-card lookup failed while resolving ID ${cardId}: ${lookupError.message}`);
     }
 
-    // Method 3: Fallback to capture app SVG output by card ID.
-    try {
-      const svgBuffer = await fetchSvgFromOutputEndpoint(cardId);
-      if (svgBuffer) {
-        console.log(`✅ Successfully fetched card SVG from /api/printing/output-svg for card ${cardId}`);
-        return sendCardAsset(res, svgBuffer, 'image/svg+xml; charset=utf-8');
-      }
-    } catch (error) {
-      console.error(`❌ /api/printing/output-svg failed: ${error.message}`);
-
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-        return res.status(503).json({
-          success: false,
-          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
-        });
-      }
-      if (error.response?.status === 404) {
-        console.log(`ℹ️ SVG not ready/not found for card ${cardId}, trying fallback endpoints...`);
-      }
-    }
-
     // Method 4: Rendered PNG output by card ID.
     try {
       const outputImage = await fetchImageFromOutputImage(cardId);
-      if (outputImage) {
+      if (outputImage && await isLikelyFullCardRaster(outputImage)) {
         console.log(`✅ Successfully fetched card image from /api/printing/output-image for card ${cardId}`);
         return sendCardAsset(res, outputImage, 'image/png');
+      }
+      if (outputImage) {
+        console.warn(`⚠️ output-image for card ${cardId} is not full card dimensions; skipping.`);
       }
     } catch (error) {
       console.error(`❌ /api/printing/output-image failed: ${error.message}`);
@@ -331,9 +368,12 @@ router.get('/:cardId/image', async (req, res) => {
     // Method 5: Use capture output listing and prefer full-card assets over partial components.
     try {
       const outputListImage = await fetchImageFromOutputList(cardId);
-      if (outputListImage) {
+      if (outputListImage && await isLikelyFullCardRaster(outputListImage)) {
         console.log(`✅ Successfully fetched card image from /api/printing/output for card ${cardId}`);
         return sendCardAsset(res, outputListImage, 'image/png');
+      }
+      if (outputListImage) {
+        console.warn(`⚠️ Output listing asset for card ${cardId} is not full card dimensions; skipping.`);
       }
       console.log(`ℹ️ No matched file URL found in /api/printing/output for card ${cardId}`);
     } catch (error) {
@@ -365,7 +405,11 @@ router.get('/:cardId/image', async (req, res) => {
         
         if (imageResponse.status === 200 && imageResponse.data && imageResponse.data.byteLength > 0) {
           console.log(`✅ Fallback endpoint succeeded (${imageResponse.data.byteLength} bytes)`);
-          return sendCardAsset(res, Buffer.from(imageResponse.data), 'image/png');
+          const fallbackBuffer = Buffer.from(imageResponse.data);
+          if (await isLikelyFullCardRaster(fallbackBuffer)) {
+            return sendCardAsset(res, fallbackBuffer, 'image/png');
+          }
+          console.warn(`⚠️ Fallback endpoint returned partial raster for card ${cardId}`);
         }
       } catch (err) {
         console.log(`Fallback endpoint failed: ${endpoint}`);
@@ -389,7 +433,10 @@ router.get('/:cardId/image', async (req, res) => {
           const imageBuffer = await fs.readFile(filePath);
           
           console.log(`✅ Found card image in file system: ${filename}`);
-          return sendCardAsset(res, imageBuffer, 'image/png');
+          if (await isLikelyFullCardRaster(imageBuffer)) {
+            return sendCardAsset(res, imageBuffer, 'image/png');
+          }
+          console.warn(`⚠️ File-system fallback ${filename} is not full card dimensions`);
         } catch (err) {
           continue;
         }

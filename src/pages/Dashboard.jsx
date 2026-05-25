@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import '../styles/dashboard.css';
@@ -49,7 +49,6 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState('overview');
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [sidebarMode, setSidebarMode] = useState(
     () => localStorage.getItem('navMode') === 'sidebar'
@@ -75,53 +74,71 @@ export default function Dashboard() {
     navigate('/login');
   };
 
-  // Define tabs based on user role
-// Update getTabs - add profile to ALL roles
-const getTabs = () => {
-  if (user?.role === 'admin') {
-    return [
-      { id: 'overview', label: '🏠 Overview' },
-      { id: 'users', label: '👥 User Management' },
-      { id: 'inventory', label: '📦 Inventory' },
-      { id: 'faulty-deliveries', label: '⚠️ Faulty Deliveries' },
-      { id: 'material-requests', label: '📦 Material Requests' },
-      { id: 'print-history', label: '📋 Print History' }, 
-      { id: 'collections', label: '🎴 Collections' },    
-      { id: 'logs', label: '📋 System Logs' },
-      { id: 'analytics', label: '📊 Analytics' },
-      { id: 'reports', label: '📄 Reports' },
-      { id: 'profile', label: '👤 Profile' }
-    ];
-  } else if (user?.role === 'supervisor') {
-    return [
-      { id: 'overview', label: '🏠 Overview' },
-      { id: 'inventory-overview', label: '📦 Inventory' },
-      { id: 'faulty-deliveries', label: '⚠️ Faulty Deliveries' },
-      { id: 'reprint', label: '🔄 Reprint Approvals' },
-      { id: 'material', label: '📦 Material Requests' },
-      { id: 'daily-reports', label: '📊 Daily Reports' },
-      { id: 'staff', label: '👥 Staff Management' },
-      { id: 'collections', label: '📈 Collections' },
-      { id: 'print-history', label: '📋 Print History' },
-      { id: 'scheduling', label: '📅 Scheduling' },
-      { id: 'profile', label: '👤 Profile' }
-    ];
-  } else {
-    const permissions = user?.permissions || [];
-    const tabs = [{ id: 'overview', label: '🏠 Dashboard' }];
-    if (permissions.includes('inventory')) tabs.push({ id: 'inventory', label: '📦 Inventory' });
-    if (permissions.includes('material')) tabs.push({ id: 'material', label: '📦 Material Requests' });
-    if (permissions.includes('daily-report')) tabs.push({ id: 'daily-report', label: '📊 Daily Reports' });
-    if (permissions.includes('collection')) tabs.push({ id: 'collection', label: '🎴 Collection' });
-    if (permissions.includes('approval')) tabs.push({ id: 'approval', label: '✓ Card Approval' });
-    if (permissions.includes('printing')) tabs.push({ id: 'print-queue', label: '🖨️ Print Queue' });
-    if (permissions.includes('reprint')) tabs.push({ id: 'reprint', label: '🔄 Reprint Requests' });
-    if (permissions.includes('scheduling')) tabs.push({ id: 'scheduling', label: '📅 Scheduling' });
+  const tabs = useMemo(() => {
+    if (user?.role === 'admin') {
+      return [
+        { id: 'overview', label: '🏠 Overview' },
+        { id: 'users', label: '👥 User Management' },
+        { id: 'inventory', label: '📦 Inventory' },
+        { id: 'faulty-deliveries', label: '⚠️ Faulty Deliveries' },
+        { id: 'material-requests', label: '📦 Material Requests' },
+        { id: 'print-history', label: '📋 Print History' },
+        { id: 'collections', label: '🎴 Collections' },
+        { id: 'logs', label: '📋 System Logs' },
+        { id: 'analytics', label: '📊 Analytics' },
+        { id: 'reports', label: '📄 Reports' },
+        { id: 'profile', label: '👤 Profile' }
+      ];
+    }
 
-    tabs.push({ id: 'profile', label: '👤 Profile' }); // Always available
-    return tabs;
-  }
-};
+    if (user?.role === 'supervisor') {
+      return [
+        { id: 'overview', label: '🏠 Overview' },
+        { id: 'inventory-overview', label: '📦 Inventory' },
+        { id: 'faulty-deliveries', label: '⚠️ Faulty Deliveries' },
+        { id: 'reprint', label: '🔄 Reprint Approvals' },
+        { id: 'material', label: '📦 Material Requests' },
+        { id: 'daily-reports', label: '📊 Daily Reports' },
+        { id: 'staff', label: '👥 Staff Management' },
+        { id: 'collections', label: '📈 Collections' },
+        { id: 'print-history', label: '📋 Print History' },
+        { id: 'scheduling', label: '📅 Scheduling' },
+        { id: 'profile', label: '👤 Profile' }
+      ];
+    }
+
+    const permissions = user?.permissions || [];
+    const staffTabs = [{ id: 'overview', label: '🏠 Dashboard' }];
+    if (permissions.includes('inventory')) staffTabs.push({ id: 'inventory', label: '📦 Inventory' });
+    if (permissions.includes('material')) staffTabs.push({ id: 'material', label: '📦 Material Requests' });
+    if (permissions.includes('daily-report')) staffTabs.push({ id: 'daily-report', label: '📊 Daily Reports' });
+    if (permissions.includes('collection')) staffTabs.push({ id: 'collection', label: '🎴 Collection' });
+    if (permissions.includes('approval')) staffTabs.push({ id: 'approval', label: '✓ Card Approval' });
+    if (permissions.includes('printing')) staffTabs.push({ id: 'print-queue', label: '🖨️ Print Queue' });
+    if (permissions.includes('reprint')) staffTabs.push({ id: 'reprint', label: '🔄 Reprint Requests' });
+    if (permissions.includes('scheduling')) staffTabs.push({ id: 'scheduling', label: '📅 Scheduling' });
+    staffTabs.push({ id: 'profile', label: '👤 Profile' });
+    return staffTabs;
+  }, [user]);
+
+  const defaultTab = tabs[0]?.id || 'overview';
+  const urlTab = searchParams.get('tab');
+  const activeTab = tabs.some((tab) => tab.id === urlTab) ? urlTab : defaultTab;
+
+  const handleTabChange = (nextTabId) => {
+    if (!tabs.some((tab) => tab.id === nextTabId)) return;
+
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextTabId === defaultTab) {
+      nextParams.delete('tab');
+    } else {
+      nextParams.set('tab', nextTabId);
+    }
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
 // Update renderContent - profile check at the TOP before role checks
 const renderContent = () => {
@@ -134,7 +151,7 @@ const renderContent = () => {
   // Admin tabs
   if (user?.role === 'admin') {
     switch (activeTab) {
-      case 'overview': return <Overview user={user} onNavigate={setActiveTab} />;
+      case 'overview': return <Overview user={user} onNavigate={handleTabChange} />;
       case 'users': return <UserManagement />;
       case 'inventory': return <InventoryManagement />;
       case 'faulty-deliveries': return <FaultyDeliveryManagement />;
@@ -143,14 +160,14 @@ const renderContent = () => {
       case 'logs': return <SystemLogs />;
       case 'analytics': return <Analytics />;
       case 'reports': return <AllReports />;
-      default: return <Overview user={user} onNavigate={setActiveTab} />;
+      default: return <Overview user={user} onNavigate={handleTabChange} />;
     }
   }
 
   // Supervisor tabs
   if (user?.role === 'supervisor') {
     switch (activeTab) {
-      case 'overview': return <SupervisorOverview user={user} onNavigate={setActiveTab} />;
+      case 'overview': return <SupervisorOverview user={user} onNavigate={handleTabChange} />;
       case 'inventory-overview': return <InventoryOverview />;
       case 'faulty-deliveries': return <FaultyDeliveryReview />;
       case 'reprint': return <ReprintApproval />;
@@ -159,7 +176,7 @@ const renderContent = () => {
       case 'staff': return <StaffManagement />;
       case 'collections': return <Collections />;
       case 'print-history': return <PrintHistory />;
-      default: return <SupervisorOverview user={user} onNavigate={setActiveTab} />;
+      default: return <SupervisorOverview user={user} onNavigate={handleTabChange} />;
     }
   }
 
@@ -176,8 +193,6 @@ const renderContent = () => {
     default: return <StaffOverview user={user} />;
   }
 };
-  const tabs = useMemo(() => getTabs(), [user]);
-  const searchQuery = searchParams.toString();
   const routeContext = useMemo(() => {
     if (location.pathname.startsWith('/admin')) {
       return { label: 'Admin Workspace', path: '/admin' };
@@ -190,44 +205,6 @@ const renderContent = () => {
     }
     return { label: 'Dashboard', path: location.pathname || '/' };
   }, [location.pathname]);
-
-  useEffect(() => {
-    const urlTab = searchParams.get('tab');
-    if (urlTab && tabs.some((tab) => tab.id === urlTab) && urlTab !== activeTab) {
-      setActiveTab(urlTab);
-      return;
-    }
-
-    if (!urlTab && activeTab !== 'overview') {
-      const requestedTab = tabs.find((tab) => tab.id === activeTab);
-      if (!requestedTab) {
-        setActiveTab(tabs[0]?.id || 'overview');
-      }
-    }
-  }, [activeTab, searchQuery, searchParams, tabs]);
-
-  useEffect(() => {
-    if (!tabs.some((tab) => tab.id === activeTab)) {
-      setActiveTab(tabs[0]?.id || 'overview');
-      return;
-    }
-
-    const currentTab = searchParams.get('tab');
-    const nextParams = new URLSearchParams(searchParams);
-
-    if (activeTab === 'overview') {
-      if (currentTab) {
-        nextParams.delete('tab');
-        setSearchParams(nextParams, { replace: true });
-      }
-      return;
-    }
-
-    if (currentTab !== activeTab) {
-      nextParams.set('tab', activeTab);
-      setSearchParams(nextParams, { replace: true });
-    }
-  }, [activeTab, searchQuery, searchParams, setSearchParams, tabs]);
 
   return (
     <div className={`dashboard-container${sidebarMode ? ' sidebar-mode' : ''}`}>
@@ -299,7 +276,7 @@ const renderContent = () => {
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => handleTabChange(tab.id)}
                   className={`sidebar-tab ${activeTab === tab.id ? 'active' : ''}`}
                 >
                   {tab.label}
@@ -319,7 +296,7 @@ const renderContent = () => {
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabChange(tab.id)}
                 className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
               >
                 {tab.label}
