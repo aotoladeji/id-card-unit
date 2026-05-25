@@ -108,12 +108,12 @@ const getTabs = () => {
     const permissions = user?.permissions || [];
     const tabs = [{ id: 'overview', label: '🏠 Dashboard' }];
     if (permissions.includes('inventory')) tabs.push({ id: 'inventory', label: '📦 Inventory' });
-    if (permissions.includes('reprint')) tabs.push({ id: 'reprint', label: '🔄 Reprint Requests' });
     if (permissions.includes('material')) tabs.push({ id: 'material', label: '📦 Material Requests' });
     if (permissions.includes('daily-report')) tabs.push({ id: 'daily-report', label: '📊 Daily Reports' });
     if (permissions.includes('collection')) tabs.push({ id: 'collection', label: '🎴 Collection' });
     if (permissions.includes('approval')) tabs.push({ id: 'approval', label: '✓ Card Approval' });
     if (permissions.includes('printing')) tabs.push({ id: 'print-queue', label: '🖨️ Print Queue' });
+    if (permissions.includes('reprint')) tabs.push({ id: 'reprint', label: '🔄 Reprint Requests' });
     if (permissions.includes('scheduling')) tabs.push({ id: 'scheduling', label: '📅 Scheduling' });
 
     tabs.push({ id: 'profile', label: '👤 Profile' }); // Always available

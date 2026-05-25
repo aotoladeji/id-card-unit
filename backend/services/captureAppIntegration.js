@@ -120,6 +120,82 @@ const extractStoredTemplateCandidates = (fingerprintPayload = {}) => {
   return candidates;
 };
 
+const extractIdentityCandidatesFromFingerprintPayload = (payload = {}) => {
+  if (!payload || typeof payload !== 'object') return [];
+
+  const student = payload.student || payload.identity || payload.user || {};
+  const candidates = [
+    payload.cardId,
+    payload.card_id,
+    payload.id,
+    payload.userId,
+    payload.user_id,
+    payload.matric_no,
+    payload.matricNumber,
+    payload.matric_number,
+    payload.staff_id,
+    payload.staffId,
+    payload.card_number,
+    payload.cardNumber,
+    student.cardId,
+    student.card_id,
+    student.id,
+    student.userId,
+    student.user_id,
+    student.matric_no,
+    student.matricNumber,
+    student.matric_number,
+    student.staff_id,
+    student.staffId,
+    student.card_number,
+    student.cardNumber,
+  ]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+};
+
+const isMatchedResponse = (responseData = {}) => {
+  if (!responseData || typeof responseData !== 'object') return false;
+
+  const truthy = (value) => {
+    if (value === true) return true;
+    if (typeof value === 'number') return value > 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      return ['true', 'matched', 'match', 'success', 'ok', 'verified', 'pass'].includes(normalized);
+    }
+    return false;
+  };
+
+  if (
+    truthy(responseData.matched) ||
+    truthy(responseData.match) ||
+    truthy(responseData.isMatch) ||
+    truthy(responseData.verified) ||
+    truthy(responseData.success)
+  ) {
+    return true;
+  }
+
+  const data = responseData.data;
+  if (data && typeof data === 'object') {
+    if (
+      truthy(data.matched) ||
+      truthy(data.match) ||
+      truthy(data.isMatch) ||
+      truthy(data.verified) ||
+      truthy(data.success)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates = []) => {
   const ids = [...new Set(identityCandidates.filter(Boolean).map((v) => String(v).trim()))];
   const scans = [...new Set(scanCandidates.filter(Boolean).map((v) => String(v).trim()))];
@@ -134,8 +210,12 @@ const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates 
           `${CAPTURE_APP_URL}/api/verify/fingerprint`,
           {
             cardId: idValue,
+            card_id: idValue,
+            userId: idValue,
             fingerprintData: scanValue,
-            scannedFingerprint: scanValue
+            scannedFingerprint: scanValue,
+            fingerprintImage: scanValue,
+            scannedFingerprintImage: scanValue
           },
           {
             timeout: 15000,
@@ -143,12 +223,24 @@ const verifyWithCaptureMatcher = async (identityCandidates = [], scanCandidates 
           }
         );
 
-        if (response.data?.matched || response.data?.match) {
+        if (isMatchedResponse(response.data)) {
+          const nested = response.data?.data && typeof response.data.data === 'object'
+            ? response.data.data
+            : null;
+
           return {
             success: true,
             matched: true,
-            studentName: response.data.studentName || null,
-            message: response.data.message || 'Verification complete'
+            studentName:
+              response.data.studentName ||
+              response.data.fullName ||
+              nested?.studentName ||
+              nested?.fullName ||
+              null,
+            message:
+              response.data.message ||
+              nested?.message ||
+              'Verification complete'
           };
         }
       } catch (error) {
@@ -661,6 +753,7 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
     // This ensures the matcher gets data in the format it expects (stored template format)
     let storedTemplateCandidates = [];
     let payload = null;
+    let resolvedIdentityCandidates = [];
     
     for (const candidate of identityCandidates) {
       try {
@@ -674,6 +767,7 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
         if (response.data?.success) {
           payload = response.data;
           storedTemplateCandidates = extractStoredTemplateCandidates(response.data);
+          resolvedIdentityCandidates = extractIdentityCandidatesFromFingerprintPayload(response.data);
           console.log(`[Fingerprint] Extracted ${storedTemplateCandidates.length} stored template candidates for card ${candidate}`);
           break;
         }
@@ -701,8 +795,13 @@ const verifyFingerprint = async (cardId, scannedFingerprintBase64, scanPayload =
 
     console.log(`[Fingerprint] Attempting verification with ${matcherScanCandidates.length} total scan candidates (${scannedTemplates.length} scanned templates + ${storedTemplateCandidates.length} stored templates + ${imageCandidates.length} images)`);
 
+    const matcherIdentityCandidates = [
+      ...resolvedIdentityCandidates,
+      ...identityCandidates,
+    ].filter((value) => value !== undefined && value !== null && String(value).trim() !== '');
+
     const matcherResult = await verifyWithCaptureMatcher(
-      identityCandidates,
+      matcherIdentityCandidates,
       matcherScanCandidates
     );
 
