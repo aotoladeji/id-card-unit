@@ -36,6 +36,29 @@ const matchesCardIdInString = (text, requestedId) => {
 const findOutputFileUrlForCard = (files, requestedId) => {
   if (!Array.isArray(files) || files.length === 0) return null;
 
+  const isComponentAsset = (value) => {
+    const text = String(value || '').toLowerCase();
+    return (
+      text.includes('passport') ||
+      text.includes('signature') ||
+      text.includes('barcode') ||
+      text.includes('thumb') ||
+      text.includes('thumbnail')
+    );
+  };
+
+  const isLikelyPrintableCardAsset = (value) => {
+    const text = String(value || '').toLowerCase();
+    return (
+      text.includes('idcard') ||
+      text.includes('card-output') ||
+      text.includes('card_output') ||
+      text.includes('output-card') ||
+      text.includes('print') ||
+      text.includes('final')
+    );
+  };
+
   const pickPreferredAssetUrl = (file) => normalizeUrl(
     file.pngUrl ||
     file.png_url ||
@@ -46,27 +69,43 @@ const findOutputFileUrlForCard = (files, requestedId) => {
     file.fileUrl
   );
 
-  // 1) Prefer explicit id fields in file records.
-  for (const file of files) {
-    const candidates = extractCardIdCandidates(file);
-    if (candidates.some((value) => value === String(requestedId))) {
-      const directUrl = pickPreferredAssetUrl(file);
-      if (directUrl) return directUrl;
-    }
-  }
+  const candidates = [];
 
-  // 2) Fallback: try matching card ID in url/name metadata.
   for (const file of files) {
-    const candidateText = [file.url, file.path, file.fileUrl, file.filename, file.name]
+    const assetUrl = pickPreferredAssetUrl(file);
+    if (!assetUrl) continue;
+
+    const metadataText = [
+      file.url,
+      file.path,
+      file.fileUrl,
+      file.filename,
+      file.name,
+      assetUrl,
+    ]
       .filter(Boolean)
       .join(' ');
-    if (matchesCardIdInString(candidateText, requestedId)) {
-      const inferredUrl = pickPreferredAssetUrl(file);
-      if (inferredUrl) return inferredUrl;
-    }
+
+    const hasExplicitId = extractCardIdCandidates(file).some((value) => value === String(requestedId));
+    const hasIdInText = matchesCardIdInString(metadataText, requestedId);
+
+    if (!hasExplicitId && !hasIdInText) continue;
+
+    let score = 0;
+    if (hasExplicitId) score += 3;
+    if (hasIdInText) score += 2;
+    if (isLikelyPrintableCardAsset(metadataText)) score += 4;
+    if (isComponentAsset(metadataText)) score -= 6;
+
+    candidates.push({ assetUrl, score });
   }
 
-  return null;
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].assetUrl;
 };
 
 const fetchImageFromOutputList = async (cardId) => {
@@ -175,6 +214,15 @@ const fetchImageFromCaptureApp = async (idCandidate) => {
   return null;
 };
 
+const sendCardAsset = (res, payload, contentType) => {
+  res.set('Content-Type', contentType);
+  // Avoid reusing stale partial renders from proxy/browser cache.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  return res.send(payload);
+};
+
 // Get card image - uses capture app's direct PNG endpoint
 router.get('/:cardId/image', async (req, res) => {
   try {
@@ -184,94 +232,25 @@ router.get('/:cardId/image', async (req, res) => {
     // According to the API guide, the capture app provides:
     // GET /api/idcard/:userId - Returns PNG image directly
     
-    // Method 1: Prefer the rendered PNG output by card ID.
-    try {
-      const outputImage = await fetchImageFromOutputImage(cardId);
-      if (outputImage) {
-        console.log(`✅ Successfully fetched card image from /api/printing/output-image for card ${cardId}`);
-        res.set('Content-Type', 'image/png');
-        res.set('Cache-Control', 'public, max-age=3600');
-        return res.send(outputImage);
-      }
-    } catch (error) {
-      console.error(`❌ /api/printing/output-image failed: ${error.message}`);
-
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-        return res.status(503).json({
-          success: false,
-          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
-        });
-      }
-    }
-
-    // Method 2: Use capture output listing and prefer PNG/image URLs for this card.
-    try {
-      const outputListImage = await fetchImageFromOutputList(cardId);
-      if (outputListImage) {
-        console.log(`✅ Successfully fetched card image from /api/printing/output for card ${cardId}`);
-        res.set('Content-Type', 'image/png');
-        res.set('Cache-Control', 'public, max-age=3600');
-        return res.send(outputListImage);
-      }
-      console.log(`ℹ️ No matched file URL found in /api/printing/output for card ${cardId}`);
-    } catch (error) {
-      console.error(`❌ /api/printing/output lookup failed: ${error.message}`);
-
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-        return res.status(503).json({
-          success: false,
-          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
-        });
-      }
-    }
-
-    // Method 3: Fallback to capture app SVG output by card ID.
-    try {
-      const svgBuffer = await fetchSvgFromOutputEndpoint(cardId);
-      if (svgBuffer) {
-        console.log(`✅ Successfully fetched card SVG from /api/printing/output-svg for card ${cardId}`);
-        res.set('Content-Type', 'image/svg+xml; charset=utf-8');
-        res.set('Cache-Control', 'public, max-age=3600');
-        return res.send(svgBuffer);
-      }
-    } catch (error) {
-      console.error(`❌ /api/printing/output-svg failed: ${error.message}`);
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-        return res.status(503).json({
-          success: false,
-          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
-        });
-      }
-      if (error.response?.status === 404) {
-        console.log(`ℹ️ SVG not ready/not found for card ${cardId}, trying fallback endpoints...`);
-      }
-    }
-
-    // Method 4: Legacy /api/idcard/:userId endpoint (kept as fallback)
+    // Method 1: Official on-demand card render endpoint.
     try {
       const directImage = await fetchImageFromCaptureApp(cardId);
       if (directImage) {
         console.log(`✅ Successfully fetched card image with direct ID (${directImage.byteLength} bytes)`);
-        res.set('Content-Type', 'image/png');
-        res.set('Cache-Control', 'public, max-age=3600');
-        return res.send(directImage);
+        return sendCardAsset(res, directImage, 'image/png');
       }
     } catch (error) {
       console.error(`❌ Official endpoint failed: ${error.message}`);
 
-      // If capture app is offline
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({
           success: false,
           message: `Capture app is not available at ${CAPTURE_APP_URL}.`
         });
       }
-
-      // Other errors - try fallback methods
-      console.log('Trying fallback methods...');
     }
 
-    // Method 5: Resolve identifier mismatch via approved cards list
+    // Method 2: Resolve identifier mismatch and retry the official endpoint.
     try {
       const approvedResponse = await axios.get(`${CAPTURE_APP_URL}/api/printing/approved`, {
         timeout: 10000
@@ -294,9 +273,7 @@ router.get('/:cardId/image', async (req, res) => {
             const candidateImage = await fetchImageFromCaptureApp(candidate);
             if (candidateImage) {
               console.log(`✅ Successfully fetched card image with candidate ID: ${candidate}`);
-              res.set('Content-Type', 'image/png');
-              res.set('Cache-Control', 'public, max-age=3600');
-              return res.send(candidateImage);
+              return sendCardAsset(res, candidateImage, 'image/png');
             }
           } catch (candidateError) {
             if (candidateError.code === 'ECONNREFUSED' || candidateError.code === 'ETIMEDOUT') {
@@ -310,6 +287,64 @@ router.get('/:cardId/image', async (req, res) => {
       }
     } catch (lookupError) {
       console.log(`Approved-card lookup failed while resolving ID ${cardId}: ${lookupError.message}`);
+    }
+
+    // Method 3: Fallback to capture app SVG output by card ID.
+    try {
+      const svgBuffer = await fetchSvgFromOutputEndpoint(cardId);
+      if (svgBuffer) {
+        console.log(`✅ Successfully fetched card SVG from /api/printing/output-svg for card ${cardId}`);
+        return sendCardAsset(res, svgBuffer, 'image/svg+xml; charset=utf-8');
+      }
+    } catch (error) {
+      console.error(`❌ /api/printing/output-svg failed: ${error.message}`);
+
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        return res.status(503).json({
+          success: false,
+          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
+        });
+      }
+      if (error.response?.status === 404) {
+        console.log(`ℹ️ SVG not ready/not found for card ${cardId}, trying fallback endpoints...`);
+      }
+    }
+
+    // Method 4: Rendered PNG output by card ID.
+    try {
+      const outputImage = await fetchImageFromOutputImage(cardId);
+      if (outputImage) {
+        console.log(`✅ Successfully fetched card image from /api/printing/output-image for card ${cardId}`);
+        return sendCardAsset(res, outputImage, 'image/png');
+      }
+    } catch (error) {
+      console.error(`❌ /api/printing/output-image failed: ${error.message}`);
+
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        return res.status(503).json({
+          success: false,
+          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
+        });
+      }
+    }
+
+    // Method 5: Use capture output listing and prefer full-card assets over partial components.
+    try {
+      const outputListImage = await fetchImageFromOutputList(cardId);
+      if (outputListImage) {
+        console.log(`✅ Successfully fetched card image from /api/printing/output for card ${cardId}`);
+        return sendCardAsset(res, outputListImage, 'image/png');
+      }
+      console.log(`ℹ️ No matched file URL found in /api/printing/output for card ${cardId}`);
+    } catch (error) {
+      console.error(`❌ /api/printing/output lookup failed: ${error.message}`);
+
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        return res.status(503).json({
+          success: false,
+          message: `Capture app is not available at ${CAPTURE_APP_URL}.`
+        });
+      }
     }
     
     // Method 6: Try alternative endpoints (fallback)
@@ -330,8 +365,7 @@ router.get('/:cardId/image', async (req, res) => {
         
         if (imageResponse.status === 200 && imageResponse.data && imageResponse.data.byteLength > 0) {
           console.log(`✅ Fallback endpoint succeeded (${imageResponse.data.byteLength} bytes)`);
-          res.set('Content-Type', 'image/png');
-          return res.send(Buffer.from(imageResponse.data));
+          return sendCardAsset(res, Buffer.from(imageResponse.data), 'image/png');
         }
       } catch (err) {
         console.log(`Fallback endpoint failed: ${endpoint}`);
@@ -355,8 +389,7 @@ router.get('/:cardId/image', async (req, res) => {
           const imageBuffer = await fs.readFile(filePath);
           
           console.log(`✅ Found card image in file system: ${filename}`);
-          res.set('Content-Type', 'image/png');
-          return res.send(imageBuffer);
+          return sendCardAsset(res, imageBuffer, 'image/png');
         } catch (err) {
           continue;
         }
