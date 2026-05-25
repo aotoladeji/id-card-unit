@@ -5,6 +5,7 @@ export default function PrintCardModal({ card, onClose, onPrint, printing = fals
   const [svgMarkup, setSvgMarkup] = useState('');
   const [loadingSvg, setLoadingSvg] = useState(true);
   const [svgError, setSvgError] = useState('');
+  const [previewReloadKey, setPreviewReloadKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -53,9 +54,19 @@ export default function PrintCardModal({ card, onClose, onPrint, printing = fals
     return () => {
       isMounted = false;
     };
-  }, [card.card_id]);
+  }, [card.card_id, previewReloadKey]);
 
   const handlePrint = async () => {
+    if (loadingSvg) {
+      alert('SVG preview is still loading. Please wait a moment and try again.');
+      return;
+    }
+
+    if (svgError) {
+      alert(svgError);
+      return;
+    }
+
     if (!onPrint) return;
     await onPrint(card);
   };
@@ -88,7 +99,18 @@ export default function PrintCardModal({ card, onClose, onPrint, printing = fals
             justifyContent: 'center'
           }}>
             {loadingSvg && <div style={{ color: 'var(--text-dim)' }}>Loading SVG preview...</div>}
-            {!loadingSvg && svgError && <div style={{ color: 'var(--danger)' }}>{svgError}</div>}
+            {!loadingSvg && svgError && (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ color: 'var(--danger)', marginBottom: '0.75rem' }}>{svgError}</div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setPreviewReloadKey((prev) => prev + 1)}
+                >
+                  🔄 Retry SVG Preview
+                </button>
+              </div>
+            )}
             {!loadingSvg && !svgError && (
               <div
                 style={{ width: '100%', maxWidth: '420px' }}
@@ -102,7 +124,7 @@ export default function PrintCardModal({ card, onClose, onPrint, printing = fals
           <button
             type="button"
             onClick={handlePrint}
-            disabled={printing || loadingSvg || Boolean(svgError)}
+            disabled={printing}
             className="btn btn-primary"
             style={{ flex: 1 }}
           >
