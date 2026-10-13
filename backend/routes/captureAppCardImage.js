@@ -4,6 +4,7 @@ const axios = require('axios');
 const path = require('path');
 const fs = require('fs').promises;
 const sharp = require('sharp');
+const { applyCardLayoutCorrection } = require('../services/cardSvgLayout');
 
 const CAPTURE_APP_URL = process.env.CAPTURE_APP_URL || 'http://localhost:5001';
 // Path to capture app's output directory (adjust this path as needed)
@@ -166,7 +167,9 @@ const fetchSvgFromOutputEndpoint = async (cardId) => {
   if (!svgResponse.data) return null;
   const svgText = String(svgResponse.data);
   if (!svgText.includes('<svg')) return null;
-  return Buffer.from(svgText, 'utf8');
+  // Correct text placement for every card (new and already-approved) at serve
+  // time, so the printed output matches the physical card stock.
+  return Buffer.from(applyCardLayoutCorrection(svgText), 'utf8');
 };
 
 const fetchSvgWithResolution = async (cardId) => {
