@@ -1,50 +1,58 @@
 /**
  * Card SVG layout correction
- * --------------------------
- * The capture app renders every approved card's printable SVG (336 x 212 user
- * units, ~0.7229 pt per unit) with the text block sitting ~13 pt too high and
- * ~3.5 pt too far left compared with the reference card that prints perfectly
- * on the physical stock.
+ * Moves the text to match the reference card and applies bold Times.
+ * Runs on every SVG fetched from the capture app, so it fixes
+ * already-approved cards too. Idempotent: only text still at the old
+ * coordinates is touched.
  *
- * The SVG is generated on demand by the capture app (/api/printing/output-svg),
- * so correcting it here, at the moment we fetch it, fixes ALL cards, including
- * every card that was already approved/captured, with no data migration.
- *
- * The correction is idempotent: only text elements still sitting at the old
- * (legacy) coordinates are moved. If the capture app is later fixed at the
- * source, its output no longer matches and passes through untouched.
- *
- * Measured targets (units, baseline of each line):
- *   ID/Matric 73.5 | Surname 92 | Other names 111 | Faculty 129
- *   Department 146 | Level 166 | Hall 182.5 | Card no (7.3, 204.5)
- *   Session (329, 92.5)   text left edge x = 74.7
- *
- * Fine tuning after a test print (units; 1 mm is about 3.92 units):
- *   CARD_SVG_NUDGE_X, CARD_SVG_NUDGE_Y   shift every corrected text element
- *   CARD_SVG_LAYOUT_FIX=false             turn the correction off entirely
+ * Env (all optional):
+ *   CARD_SVG_NUDGE_X, CARD_SVG_NUDGE_Y   shift corrected text (units; 1mm ~ 3.92)
+ *   CARD_SVG_LAYOUT_FIX=false            turn the whole correction off
+ *   CARD_SVG_FONT_FIX=false              move text only, keep the original font
+ *   CARD_SVG_BOLD_CARD_NUMBER=true       make the card number bold too
  */
 
 const TEXT_LEFT = 74.7;
+const FONT_FAMILY = "'Times New Roman', Times, 'Liberation Serif', serif";
+const MAX_TEXT_WIDTH = 155; // space between text column and photo
+const MIN_FONT_SIZE = 6;
 
-// legacy "x,y" emitted by the capture app  ->  corrected [x, y]
 const LEGACY_TO_CORRECTED = [
-  { from: [70, 56], to: [TEXT_LEFT, 73.5] },   // matric / staff id
-  { from: [70, 74], to: [TEXT_LEFT, 92] },     // surname
-  { from: [70, 92], to: [TEXT_LEFT, 111] },    // other names
-  { from: [70, 110], to: [TEXT_LEFT, 129] },   // faculty
-  { from: [70, 128], to: [TEXT_LEFT, 146] },   // department
-  { from: [70, 146], to: [TEXT_LEFT, 166] },   // level
-  { from: [70, 164], to: [TEXT_LEFT, 182.5] }, // hall
-  { from: [10, 200], to: [7.3, 204.5] },       // card number
-  { from: [330, 95], to: [329, 92.5] }         // session (vertical, right edge)
+  { field: 'id',         from: [70, 56],   to: [TEXT_LEFT, 73.5],  size: 16.6,  bold: true,  fit: true },
+  { field: 'surname',    from: [70, 74],   to: [TEXT_LEFT, 92],    size: 15.2,  bold: true,  fit: true },
+  { field: 'otherNames', from: [70, 92],   to: [TEXT_LEFT, 111],   size: 15.2,  bold: true,  fit: true },
+  { field: 'faculty',    from: [70, 110],  to: [TEXT_LEFT, 129],   size: 15.2,  bold: true,  fit: true },
+  { field: 'department', from: [70, 128],  to: [TEXT_LEFT, 146],   size: 15.2,  bold: true,  fit: true },
+  { field: 'level',      from: [70, 146],  to: [TEXT_LEFT, 166],   size: 16.6,  bold: true,  fit: true },
+  { field: 'hall',       from: [70, 164],  to: [TEXT_LEFT, 182.5], size: 16.6,  bold: true,  fit: true },
+  { field: 'cardNumber', from: [10, 200],  to: [7.2, 204.5],       size: 11.1,  bold: false, fit: false },
+  { field: 'session',    from: [330, 95],  to: [329, 92],          size: 12.45, bold: true,  fit: false }
 ];
 
 const EPSILON = 0.01;
+
+// Times New Roman Bold advance widths (per 1000 em), used for fit-to-width
+const W = { ' ': 250, '&': 833, '-': 333, '/': 278, '.': 250, ',': 250, '(': 333, ')': 333, "'": 278,
+  A: 722, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 778, I: 389, J: 500, K: 778, L: 667, M: 944,
+  N: 722, O: 778, P: 611, Q: 778, R: 722, S: 556, T: 667, U: 722, V: 722, W: 1000, X: 722, Y: 722, Z: 667,
+  a: 500, b: 556, c: 444, d: 556, e: 444, f: 333, g: 500, h: 556, i: 278, j: 333, k: 556, l: 278, m: 833,
+  n: 556, o: 500, p: 556, q: 556, r: 444, s: 389, t: 333, u: 556, v: 500, w: 722, x: 500, y: 500, z: 444 };
+
+const unescapeXml = (s) => s.replace(/<[^>]*>/g, '')
+  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'");
+
+const textWidthEm = (text) => {
+  let total = 0;
+  for (const ch of text) total += /[0-9]/.test(ch) ? 500 : (W[ch] || 550);
+  return total / 1000;
+};
 
 const readNumberEnv = (name) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) ? value : 0;
 };
+const envIs = (name, expected) => String(process.env[name]).toLowerCase() === expected;
 
 const getAttr = (tag, name) => {
   const match = tag.match(new RegExp(`\\s${name}\\s*=\\s*(["'])([^"']*)\\1`));
@@ -57,37 +65,59 @@ const setAttr = (tag, name, value) => {
   return tag.replace(attr.raw, ` ${name}=${attr.quote}${value}${attr.quote}`);
 };
 
+// inline style wins over the capture app's `.label { font-family: Arial }` rule
+const mergeStyle = (tag, css) => {
+  const attr = getAttr(tag, 'style');
+  if (attr) return tag.replace(attr.raw, ` style="${attr.value.replace(/;?\s*$/, ';')}${css}"`);
+  return tag.replace(/^<text\b/, `<text style="${css}"`);
+};
+
 const round = (n) => Math.round(n * 100) / 100;
 
-/**
- * @param {string} svgText raw SVG returned by the capture app
- * @returns {string} SVG with the text layout corrected
- */
 const applyCardLayoutCorrection = (svgText) => {
   if (typeof svgText !== 'string' || !svgText.includes('<text')) return svgText;
-  if (String(process.env.CARD_SVG_LAYOUT_FIX).toLowerCase() === 'false') return svgText;
+  if (envIs('CARD_SVG_LAYOUT_FIX', 'false')) return svgText;
 
   const nudgeX = readNumberEnv('CARD_SVG_NUDGE_X');
   const nudgeY = readNumberEnv('CARD_SVG_NUDGE_Y');
+  const fixFont = !envIs('CARD_SVG_FONT_FIX', 'false');
+  const boldCardNumber = envIs('CARD_SVG_BOLD_CARD_NUMBER', 'true');
 
-  return svgText.replace(/<text\b[^>]*>/g, (tag) => {
+  return svgText.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, (element) => {
+    const tagEnd = element.indexOf('>') + 1;
+    let tag = element.slice(0, tagEnd);
+    const rest = element.slice(tagEnd);
+
     const xAttr = getAttr(tag, 'x');
     const yAttr = getAttr(tag, 'y');
-    if (!xAttr || !yAttr) return tag;
+    if (!xAttr || !yAttr) return element;
 
     const x = parseFloat(xAttr.value);
     const y = parseFloat(yAttr.value);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return tag;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return element;
 
     const rule = LEGACY_TO_CORRECTED.find(
       ({ from }) => Math.abs(from[0] - x) < EPSILON && Math.abs(from[1] - y) < EPSILON
     );
-    if (!rule) return tag;
+    if (!rule) return element;
 
-    let corrected = setAttr(tag, 'x', round(rule.to[0] + nudgeX));
-    corrected = setAttr(corrected, 'y', round(rule.to[1] + nudgeY));
-    return corrected;
+    tag = setAttr(tag, 'x', round(rule.to[0] + nudgeX));
+    tag = setAttr(tag, 'y', round(rule.to[1] + nudgeY));
+
+    if (fixFont) {
+      let size = rule.size;
+      if (rule.fit) {
+        const text = unescapeXml(rest.replace(/<\/text>$/, ''));
+        const em = textWidthEm(text);
+        if (em > 0) size = Math.max(MIN_FONT_SIZE, Math.min(size, MAX_TEXT_WIDTH / em));
+      }
+      const bold = rule.bold || (rule.field === 'cardNumber' && boldCardNumber);
+      tag = setAttr(tag, 'font-size', `${round(size)}px`);
+      tag = mergeStyle(tag, `font-family:${FONT_FAMILY};font-weight:${bold ? 'bold' : 'normal'};`);
+    }
+
+    return tag + rest;
   });
 };
 
-module.exports = { applyCardLayoutCorrection, LEGACY_TO_CORRECTED };
+module.exports = { applyCardLayoutCorrection, LEGACY_TO_CORRECTED, textWidthEm };
