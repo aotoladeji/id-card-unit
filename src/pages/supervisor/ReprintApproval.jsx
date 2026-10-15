@@ -53,7 +53,7 @@ export default function ReprintApproval() {
         setRequests(requests.map(req => 
           req.id === id ? data.request : req
         ));
-        showNotification(`Request ${status} successfully`, 'success');
+        showNotification(data.message || `Request ${status} successfully`, 'success');
       } else {
         showNotification(data.message || 'Failed to update request', 'error');
       }

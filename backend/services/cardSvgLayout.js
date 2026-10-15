@@ -1,9 +1,9 @@
 /**
  * Card SVG layout correction
- * Moves the text to match the reference card and applies bold Times.
- * Runs on every SVG fetched from the capture app, so it fixes
- * already-approved cards too. Idempotent: only text still at the old
- * coordinates is touched.
+ * Moves the text to match the reference card, applies bold Times, and flips
+ * the session to run bottom-to-top along the right edge.
+ * Runs on every SVG fetched from the capture app, so it fixes already-approved
+ * cards too. Idempotent: only text still at the old coordinates is touched.
  *
  * Env (all optional):
  *   CARD_SVG_NUDGE_X, CARD_SVG_NUDGE_Y   shift corrected text (units; 1mm ~ 3.92)
@@ -12,26 +12,28 @@
  *   CARD_SVG_BOLD_CARD_NUMBER=true       make the card number bold too
  */
 
-const TEXT_LEFT = 74.7;
+const TEXT_LEFT = 70;
 const FONT_FAMILY = "'Times New Roman', Times, 'Liberation Serif', serif";
 const MAX_TEXT_WIDTH = 155; // space between text column and photo
 const MIN_FONT_SIZE = 6;
 
 const LEGACY_TO_CORRECTED = [
-  { field: 'id',         from: [70, 56],   to: [TEXT_LEFT, 73.5],  size: 16.6,  bold: true,  fit: true },
-  { field: 'surname',    from: [70, 74],   to: [TEXT_LEFT, 92],    size: 15.2,  bold: true,  fit: true },
-  { field: 'otherNames', from: [70, 92],   to: [TEXT_LEFT, 111],   size: 15.2,  bold: true,  fit: true },
-  { field: 'faculty',    from: [70, 110],  to: [TEXT_LEFT, 129],   size: 15.2,  bold: true,  fit: true },
-  { field: 'department', from: [70, 128],  to: [TEXT_LEFT, 146],   size: 15.2,  bold: true,  fit: true },
-  { field: 'level',      from: [70, 146],  to: [TEXT_LEFT, 166],   size: 16.6,  bold: true,  fit: true },
-  { field: 'hall',       from: [70, 164],  to: [TEXT_LEFT, 182.5], size: 16.6,  bold: true,  fit: true },
-  { field: 'cardNumber', from: [10, 200],  to: [7.2, 204.5],       size: 11.1,  bold: false, fit: false },
-  { field: 'session',    from: [330, 95],  to: [329, 92],          size: 12.45, bold: true,  fit: false }
+  { field: 'id',         from: [70, 56],   to: [TEXT_LEFT, 72],    size: 16.6, bold: true, fit: true },
+  { field: 'surname',    from: [70, 74],   to: [TEXT_LEFT, 90.5],  size: 15.2, bold: true, fit: true },
+  { field: 'otherNames', from: [70, 92],   to: [TEXT_LEFT, 109.5], size: 15.2, bold: true, fit: true },
+  { field: 'faculty',    from: [70, 110],  to: [TEXT_LEFT, 127.5], size: 15.2, bold: true, fit: true },
+  { field: 'department', from: [70, 128],  to: [TEXT_LEFT, 144.5], size: 15.2, bold: true, fit: true },
+  { field: 'level',      from: [70, 146],  to: [TEXT_LEFT, 164.5], size: 16.6, bold: true, fit: true },
+  { field: 'hall',       from: [70, 164],  to: [TEXT_LEFT, 181],   size: 16.6, bold: true, fit: true },
+  { field: 'cardNumber', from: [10, 200],  to: [7.2, 204.5],       size: 11.1, bold: false, fit: false },
+  // Session: runs bottom-to-top along the right edge (glyph tops face left).
+  // x = text baseline, y = where the text starts (bottom end).
+  { field: 'session',    from: [330, 95],  to: [329.5, 173],       size: 12.45, bold: true, fit: false, rotate: -90 }
 ];
 
 const EPSILON = 0.01;
 
-// Times New Roman Bold advance widths (per 1000 em), used for fit-to-width
+// Times New Roman Bold advance widths (per 1000 em), for fit-to-width
 const W = { ' ': 250, '&': 833, '-': 333, '/': 278, '.': 250, ',': 250, '(': 333, ')': 333, "'": 278,
   A: 722, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 778, I: 389, J: 500, K: 778, L: 667, M: 944,
   N: 722, O: 778, P: 611, Q: 778, R: 722, S: 556, T: 667, U: 722, V: 722, W: 1000, X: 722, Y: 722, Z: 667,
@@ -101,8 +103,17 @@ const applyCardLayoutCorrection = (svgText) => {
     );
     if (!rule) return element;
 
-    tag = setAttr(tag, 'x', round(rule.to[0] + nudgeX));
-    tag = setAttr(tag, 'y', round(rule.to[1] + nudgeY));
+    const newX = round(rule.to[0] + nudgeX);
+    const newY = round(rule.to[1] + nudgeY);
+    tag = setAttr(tag, 'x', newX);
+    tag = setAttr(tag, 'y', newY);
+
+    if (rule.rotate) {
+      // drop the capture app's vertical-rl (reads top-to-bottom) and rotate instead
+      tag = tag.replace(/\swriting-mode\s*=\s*(["'])[^"']*\1/, '');
+      tag = tag.replace(/\stransform\s*=\s*(["'])[^"']*\1/, '');
+      tag = tag.replace(/^<text\b/, `<text transform="rotate(${rule.rotate} ${newX} ${newY})"`);
+    }
 
     if (fixFont) {
       let size = rule.size;
