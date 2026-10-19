@@ -31,6 +31,11 @@ const LEGACY_TO_CORRECTED = [
   { field: 'session',    from: [330, 95],  to: [329.5, 173],       size: 12.45, bold: true, fit: false, rotate: -90 }
 ];
 
+// Passport photo + signature box: the capture app puts them at x=246 (width 78),
+// so their right edge (324) runs into the session text. Shift both left.
+const LEGACY_IMAGES = [[246, 88], [246, 186]]; // [x, y] of passport, signature
+const IMAGE_SHIFT_X = -12;                     // units (~3 mm)
+
 const EPSILON = 0.01;
 
 // Times New Roman Bold advance widths (per 1000 em), for fit-to-width
@@ -85,7 +90,9 @@ const applyCardLayoutCorrection = (svgText) => {
   const fixFont = !envIs('CARD_SVG_FONT_FIX', 'false');
   const boldCardNumber = envIs('CARD_SVG_BOLD_CARD_NUMBER', 'true');
 
-  return svgText.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, (element) => {
+  const photoNudge = readNumberEnv('CARD_SVG_PHOTO_NUDGE_X');
+
+  const textFixed = svgText.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, (element) => {
     const tagEnd = element.indexOf('>') + 1;
     let tag = element.slice(0, tagEnd);
     const rest = element.slice(tagEnd);
@@ -126,9 +133,20 @@ const applyCardLayoutCorrection = (svgText) => {
       tag = setAttr(tag, 'font-size', `${round(size)}px`);
       tag = mergeStyle(tag, `font-family:${FONT_FAMILY};font-weight:${bold ? 'bold' : 'normal'};`);
     }
-
     return tag + rest;
   });
-};
 
+  // move passport photo + signature clear of the session text
+  return textFixed.replace(/<image\b[^>]*>/g, (tag) => {
+    const xAttr = getAttr(tag, 'x');
+    const yAttr = getAttr(tag, 'y');
+    if (!xAttr || !yAttr) return tag;
+    const x = parseFloat(xAttr.value);
+    const y = parseFloat(yAttr.value);
+    const match = LEGACY_IMAGES.some(
+      ([lx, ly]) => Math.abs(lx - x) < EPSILON && Math.abs(ly - y) < EPSILON
+    );
+    return match ? setAttr(tag, 'x', round(x + IMAGE_SHIFT_X + photoNudge)) : tag;
+  });
+};
 module.exports = { applyCardLayoutCorrection, LEGACY_TO_CORRECTED, textWidthEm };
