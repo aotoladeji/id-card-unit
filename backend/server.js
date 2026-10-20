@@ -129,6 +129,11 @@ app.use('/api/admin/migration', migrationRoutes);
 app.use('/api/admin/developer-reset', developerResetRoutes);
 app.use('/api/diagnostic', diagnosticRoutes);
 
+// TEMPORARY photo framing test page (only when ENABLE_PHOTO_TEST=true)
+if (String(process.env.ENABLE_PHOTO_TEST).toLowerCase() === 'true') {
+  app.use('/api/photo-test', require('./routes/photoFramingTest'));
+}
+
 // Liveness endpoint (no DB access)
 app.get('/api/ping', (req, res) => {
   res.json({
